@@ -1,6 +1,484 @@
 {% extends "base.html" %}
 {% block title %}{{ page_title }}{% endblock %}
 {% block content %}
-<!-- TODO: implement in /frontend phase -->
-<h1 class="text-2xl font-bold">{{ page_title }}</h1>
+
+<div x-data="triageApp()" x-cloak>
+
+  <!-- Header -->
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Smart Inbox Triage</h1>
+    <p class="mt-1 text-sm text-gray-500">
+      Waehle einen Eingangsordner (z.B. Downloads). Das Tool analysiert jede Datei
+      und schlaegt den passenden Zielordner vor.
+    </p>
+  </div>
+
+  <!-- Warning: no profiles/rules -->
+  <template x-if="warning">
+    <div class="mb-4 rounded-lg bg-amber-50 border border-amber-200 p-4">
+      <div class="flex items-start gap-3">
+        <svg class="w-5 h-5 text-amber-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+        </svg>
+        <p class="text-sm text-amber-800" x-text="warning"></p>
+      </div>
+    </div>
+  </template>
+
+  <!-- Step 1: Select inbox folder -->
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5 mb-6">
+    <h2 class="text-lg font-semibold text-gray-800 mb-3">Eingangsordner waehlen</h2>
+    <div class="flex flex-col sm:flex-row gap-3">
+      <input
+        type="text"
+        x-model="inboxPath"
+        placeholder="/Users/dein-name/Downloads"
+        class="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-200 outline-none transition-colors"
+        :disabled="loading"
+        @keydown.enter="analyse()"
+      />
+      <div class="flex gap-2">
+        <div class="flex items-center gap-2">
+          <label class="text-xs text-gray-500 whitespace-nowrap">Schwelle:</label>
+          <input
+            type="number"
+            x-model.number="threshold"
+            min="0"
+            max="100"
+            class="w-16 rounded-lg border border-gray-300 px-2 py-2.5 text-sm text-center focus:border-brand-500 focus:ring-2 focus:ring-brand-200 outline-none"
+            :disabled="loading"
+          />
+          <span class="text-xs text-gray-400">%</span>
+        </div>
+        <button
+          @click="analyse()"
+          :disabled="loading || !inboxPath.trim()"
+          class="px-5 py-2.5 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+        >
+          <span x-show="!loading">Analysieren</span>
+          <span x-show="loading" class="flex items-center gap-2">
+            <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            Analyse...
+          </span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error message -->
+  <template x-if="error">
+    <div class="mb-4 rounded-lg bg-red-50 border border-red-200 p-4">
+      <div class="flex items-start gap-3">
+        <svg class="w-5 h-5 text-red-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9.303 3.376c-.866 1.5.217 3.374 1.948 3.374H1.838c-1.73 0-2.813-1.874-1.948-3.374L10.051 3.378c.866-1.5 3.032-1.5 3.898 0l9.252 16.122ZM12 15.75h.007v.008H12v-.008Z" />
+        </svg>
+        <p class="text-sm text-red-700" x-text="error"></p>
+      </div>
+    </div>
+  </template>
+
+  <!-- Step 2: Triage results table -->
+  <template x-if="items.length > 0 && !executionDone">
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6">
+      <!-- Table header with stats -->
+      <div class="px-5 py-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold text-gray-800">Triage-Ergebnisse</h2>
+          <p class="text-xs text-gray-500 mt-0.5">
+            <span x-text="items.length"></span> Dateien analysiert,
+            <span x-text="items.filter(i => i.confirmed).length" class="text-green-600 font-medium"></span> bestaetigt,
+            <span x-text="unmatchedCount" class="text-amber-600 font-medium"></span> nicht zugeordnet
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <button
+            @click="confirmAll()"
+            class="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Alle bestaetigen
+          </button>
+          <button
+            @click="executeConfirmed()"
+            :disabled="executing || items.filter(i => i.confirmed).length === 0"
+            class="px-4 py-1.5 bg-green-600 text-white text-xs font-medium rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <span x-show="!executing">
+              Bestaetigte verschieben (<span x-text="items.filter(i => i.confirmed).length"></span>)
+            </span>
+            <span x-show="executing" class="flex items-center gap-1">
+              <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+              Verschiebe...
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Triage table -->
+      <div class="overflow-x-auto custom-scrollbar">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
+                <input type="checkbox" @change="toggleAll($event.target.checked)"
+                       class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dateiname</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vorschlag / Zielordner</th>
+              <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Konfidenz</th>
+              <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Typ</th>
+            </tr>
+          </thead>
+          <tbody class="bg-white divide-y divide-gray-200">
+            <template x-for="(item, idx) in items" :key="idx">
+              <tr :class="{ 'bg-green-50': item.confirmed, 'bg-gray-50': item.rejected }">
+                <!-- Checkbox -->
+                <td class="px-4 py-3">
+                  <input type="checkbox" x-model="item.confirmed"
+                         :disabled="!item.selectedFolder"
+                         class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                </td>
+                <!-- Filename -->
+                <td class="px-4 py-3">
+                  <div class="text-sm font-medium text-gray-900 truncate max-w-xs" x-text="item.file_name" :title="item.source_path"></div>
+                  <div class="text-xs text-gray-400 truncate max-w-xs" x-text="item.source_path"></div>
+                </td>
+                <!-- Folder dropdown -->
+                <td class="px-4 py-3">
+                  <select
+                    x-model="item.selectedFolder"
+                    @change="onFolderChange(idx)"
+                    class="w-full text-sm rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-200 py-1.5"
+                  >
+                    <option value="">-- Nicht zugeordnet --</option>
+                    <!-- Suggested folder (if any) -->
+                    <template x-if="item.suggested_folder && !item.alternatives.includes(item.suggested_folder)">
+                      <option :value="item.suggested_folder" x-text="shortenPath(item.suggested_folder)" selected></option>
+                    </template>
+                    <!-- Alternatives (tied scores) -->
+                    <template x-for="alt in item.alternatives" :key="alt">
+                      <option :value="alt" x-text="shortenPath(alt)"></option>
+                    </template>
+                    <!-- All known folders -->
+                    <optgroup label="Alle bekannten Ordner">
+                      <template x-for="folder in knownFolders" :key="folder">
+                        <option
+                          :value="folder"
+                          x-text="shortenPath(folder)"
+                          x-show="folder !== item.suggested_folder && !item.alternatives.includes(folder)"
+                        ></option>
+                      </template>
+                    </optgroup>
+                  </select>
+                </td>
+                <!-- Confidence -->
+                <td class="px-4 py-3 text-center">
+                  <template x-if="item.confidence !== null">
+                    <span
+                      class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                      :class="{
+                        'bg-green-100 text-green-800': item.confidence >= 80,
+                        'bg-yellow-100 text-yellow-800': item.confidence >= 50 && item.confidence < 80,
+                        'bg-orange-100 text-orange-800': item.confidence >= 30 && item.confidence < 50,
+                        'bg-red-100 text-red-800': item.confidence < 30,
+                      }"
+                    >
+                      <span x-text="item.confidence + '%'"></span>
+                    </span>
+                  </template>
+                  <template x-if="item.confidence === null">
+                    <span class="text-xs text-gray-400">--</span>
+                  </template>
+                </td>
+                <!-- Match type -->
+                <td class="px-4 py-3 text-center">
+                  <template x-if="item.match_type === 'strict'">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">Regel</span>
+                  </template>
+                  <template x-if="item.match_type === 'fuzzy'">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">Fuzzy</span>
+                  </template>
+                  <template x-if="!item.match_type">
+                    <span class="text-xs text-gray-400">--</span>
+                  </template>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </template>
+
+  <!-- Step 3: Execution result -->
+  <template x-if="executionDone">
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+      <div class="text-center">
+        <template x-if="executionResult.failed_count === 0">
+          <div>
+            <svg class="mx-auto h-12 w-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h3 class="mt-3 text-lg font-semibold text-gray-900">Verschiebung abgeschlossen</h3>
+            <p class="mt-1 text-sm text-gray-500">
+              <span x-text="executionResult.moved_count"></span> Dateien erfolgreich verschoben.
+            </p>
+          </div>
+        </template>
+        <template x-if="executionResult.failed_count > 0">
+          <div>
+            <svg class="mx-auto h-12 w-12 text-amber-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            </svg>
+            <h3 class="mt-3 text-lg font-semibold text-gray-900">Teilweise verschoben</h3>
+            <p class="mt-1 text-sm text-gray-500">
+              <span x-text="executionResult.moved_count"></span> verschoben,
+              <span x-text="executionResult.failed_count" class="text-red-600 font-medium"></span> fehlgeschlagen.
+            </p>
+            <template x-if="executionResult.errors.length > 0">
+              <div class="mt-3 text-left bg-red-50 rounded-lg p-3 max-w-md mx-auto">
+                <template x-for="err in executionResult.errors" :key="err">
+                  <p class="text-xs text-red-700" x-text="err"></p>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+        <button
+          @click="reset()"
+          class="mt-4 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors"
+        >
+          Neue Triage starten
+        </button>
+      </div>
+    </div>
+  </template>
+
+  <!-- Empty state -->
+  <template x-if="!loading && items.length === 0 && analysed && !error">
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
+      <svg class="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661z" />
+      </svg>
+      <h3 class="mt-3 text-sm font-medium text-gray-900">Keine Dateien gefunden</h3>
+      <p class="mt-1 text-sm text-gray-500">Der Eingangsordner enthaelt keine sichtbaren Dateien.</p>
+    </div>
+  </template>
+
+</div>
+
+<script>
+function triageApp() {
+  return {
+    // State
+    inboxPath: '',
+    threshold: 40,
+    loading: false,
+    analysed: false,
+    error: null,
+    warning: null,
+    items: [],
+    unmatchedCount: 0,
+    batchId: null,
+    knownFolders: [],
+    executing: false,
+    executionDone: false,
+    executionResult: { moved_count: 0, failed_count: 0, errors: [] },
+
+    // Shorten a folder path for display (show last 2-3 segments)
+    shortenPath(fullPath) {
+      if (!fullPath) return '';
+      const parts = fullPath.split('/').filter(Boolean);
+      if (parts.length <= 3) return fullPath;
+      return '.../' + parts.slice(-3).join('/');
+    },
+
+    // Analyse inbox
+    async analyse() {
+      this.error = null;
+      this.warning = null;
+      this.loading = true;
+      this.analysed = false;
+      this.items = [];
+      this.executionDone = false;
+
+      try {
+        // Load known folders for dropdown
+        const foldersRes = await fetch('/triage/folders');
+        if (foldersRes.ok) {
+          this.knownFolders = await foldersRes.json();
+        }
+
+        // Run analysis
+        const res = await fetch('/triage/analyse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            inbox_path: this.inboxPath.trim(),
+            confidence_threshold: this.threshold,
+          }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.detail || `Fehler: ${res.status}`);
+        }
+
+        const data = await res.json();
+        this.batchId = data.batch_id;
+        this.unmatchedCount = data.unmatched_count;
+
+        // Enrich items with UI state
+        this.items = data.items.map(item => ({
+          ...item,
+          selectedFolder: item.suggested_folder || '',
+          confirmed: false,  // BUG-4 FIX: Never auto-confirm; user must explicitly confirm
+          rejected: false,
+          originalFolder: item.suggested_folder,
+        }));
+
+        this.analysed = true;
+
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    // When user changes the folder dropdown
+    async onFolderChange(idx) {
+      const item = this.items[idx];
+      if (!item.selectedFolder) {
+        item.confirmed = false;
+        return;
+      }
+
+      // BUG-5 FIX: Send feedback when user changes the folder OR assigns one for
+      // the first time (originalFolder was null). This strengthens keywords for the
+      // chosen folder in folder_profiles.
+      const isNewAssignment = !item.originalFolder && item.selectedFolder;
+      const isChangedAssignment = item.originalFolder && item.selectedFolder !== item.originalFolder;
+      if (isNewAssignment || isChangedAssignment) {
+        try {
+          await fetch('/triage/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              file_name: item.file_name,
+              chosen_folder: item.selectedFolder,
+            }),
+          });
+        } catch (err) {
+          console.warn('Feedback konnte nicht gespeichert werden:', err);
+        }
+      }
+
+      // Auto-confirm when user picks a folder
+      item.confirmed = true;
+    },
+
+    // Confirm all items that have a selected folder
+    confirmAll() {
+      this.items.forEach(item => {
+        if (item.selectedFolder) {
+          item.confirmed = true;
+        }
+      });
+    },
+
+    // Toggle all checkboxes
+    toggleAll(checked) {
+      this.items.forEach(item => {
+        if (item.selectedFolder) {
+          item.confirmed = checked;
+        }
+      });
+    },
+
+    // Execute confirmed moves
+    async executeConfirmed() {
+      const confirmed = this.items.filter(i => i.confirmed && i.selectedFolder);
+      if (confirmed.length === 0) return;
+
+      this.executing = true;
+      this.error = null;
+
+      try {
+        const res = await fetch('/triage/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            batch_id: this.batchId,
+            confirmed_items: confirmed.map(item => ({
+              file_name: item.file_name,
+              source_path: item.source_path,
+              confirmed_folder: item.selectedFolder,
+            })),
+          }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.detail || `Fehler: ${res.status}`);
+        }
+
+        // Poll for completion
+        await this.pollExecution(this.batchId);
+
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.executing = false;
+      }
+    },
+
+    // Poll batch status until done
+    async pollExecution(batchId) {
+      const maxAttempts = 120;  // 2 minutes max
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+
+        try {
+          const res = await fetch(`/triage/batch/${batchId}/status`);
+          if (!res.ok) continue;
+
+          const status = await res.json();
+          if (status.done) {
+            this.executionResult = {
+              moved_count: status.moved,
+              failed_count: status.failed,
+              errors: status.errors || [],
+            };
+            this.executionDone = true;
+            return;
+          }
+        } catch (err) {
+          console.warn('Poll-Fehler:', err);
+        }
+      }
+
+      this.error = 'Zeitueberschreitung beim Warten auf die Verschiebung.';
+    },
+
+    // Reset to start a new triage
+    reset() {
+      this.items = [];
+      this.batchId = null;
+      this.unmatchedCount = 0;
+      this.analysed = false;
+      this.executionDone = false;
+      this.executionResult = { moved_count: 0, failed_count: 0, errors: [] };
+      this.error = null;
+      this.warning = null;
+    },
+  };
+}
+</script>
+
 {% endblock %}

@@ -28,8 +28,8 @@ class TriageRequest(BaseModel):
 class TriageConfirmItem(BaseModel):
     """One confirmed row; user may have changed the suggested folder."""
     file_name: str
-    source_path: str
-    confirmed_folder: str   # absolute target folder path
+    source_path: SafePath       # validated: absolute, no traversal, no system dirs
+    confirmed_folder: SafePath  # validated: absolute, no traversal, no system dirs
 
 
 class TriageExecuteRequest(BaseModel):
