@@ -1,6 +1,668 @@
 {% extends "base.html" %}
 {% block title %}{{ page_title }}{% endblock %}
 {% block content %}
-<!-- TODO: implement in /frontend phase -->
-<h1 class="text-2xl font-bold">{{ page_title }}</h1>
+
+<div x-data="renameApp()" x-init="init()">
+
+  <!-- Page Header -->
+  <div class="mb-6">
+    <h1 class="text-2xl sm:text-3xl font-bold text-gray-900">Datei-Umbenenner</h1>
+    <p class="mt-1 text-sm text-gray-500">
+      Dateien automatisch umbenennen -- per Metadaten (schnell) oder KI-Inhaltsanalyse (intelligent).
+    </p>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- Step 1: Scan Selection                                              -->
+  <!-- ================================================================== -->
+  <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-6 mb-6">
+    <div class="flex items-center gap-2 mb-4">
+      <svg class="w-5 h-5 text-brand-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+      </svg>
+      <h2 class="text-lg font-semibold text-gray-900">1. Ordner scannen</h2>
+    </div>
+
+    <div class="flex flex-col sm:flex-row gap-3">
+      <div class="flex-1 relative">
+        <input
+          type="text"
+          x-model="sourcePath"
+          placeholder="/Users/dein-name/Downloads"
+          :disabled="scanning || previewLoading"
+          class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm
+                 focus:ring-2 focus:ring-brand-500 focus:border-brand-500
+                 disabled:bg-gray-100 disabled:text-gray-500
+                 placeholder:text-gray-400 transition-colors"
+          @keydown.enter="startScan()"
+        />
+      </div>
+      <button
+        @click="pickFolder()"
+        :disabled="scanning || pickingFolder || previewLoading"
+        class="flex items-center justify-center gap-2 bg-white hover:bg-gray-50
+               text-gray-700 px-4 py-2.5 rounded-lg border border-gray-300
+               text-sm font-medium whitespace-nowrap
+               disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
+      >
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" />
+        </svg>
+        <span x-text="pickingFolder ? 'Warte auf Finder...' : 'Ordner auswaehlen'"></span>
+      </button>
+    </div>
+
+    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 mt-4">
+      <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+        <input type="checkbox" x-model="recursive" :disabled="scanning"
+               class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+        Unterordner einschliessen (rekursiv)
+      </label>
+
+      <button
+        @click="startScan()"
+        :disabled="scanning || !sourcePath.trim() || previewLoading"
+        class="sm:ml-auto flex items-center justify-center gap-2
+               bg-brand-600 hover:bg-brand-700 text-white px-6 py-2.5 rounded-lg
+               text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed
+               transition-colors shadow-sm w-full sm:w-auto"
+      >
+        <template x-if="!scanning">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+        </template>
+        <template x-if="scanning">
+          <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </template>
+        <span x-text="scanning ? 'Scan laeuft...' : 'Scan starten'"></span>
+      </button>
+    </div>
+
+    <!-- Scan Progress -->
+    <div x-show="scanning" x-cloak class="mt-4">
+      <div class="flex items-center gap-2 text-sm text-brand-700 mb-2">
+        <span class="flex h-2.5 w-2.5 relative">
+          <span class="scan-pulse absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-brand-500"></span>
+        </span>
+        <span x-text="scanFileCount + ' Dateien gefunden...'"></span>
+      </div>
+      <div class="w-full bg-gray-100 rounded-full h-1.5">
+        <div class="h-1.5 rounded-full bg-brand-500 transition-all duration-300"
+             :style="scanTotalCount > 0 ? 'width:' + Math.min(99, Math.round(scanFileCount / scanTotalCount * 100)) + '%' : 'width: 30%'"></div>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div x-show="error" x-cloak
+         class="mt-4 flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm" role="alert">
+      <svg class="w-5 h-5 shrink-0 mt-0.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+      </svg>
+      <span x-text="error"></span>
+      <button @click="error = null" class="ml-auto text-red-400 hover:text-red-600 shrink-0">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Step 2: Mode Selection + File Selection                             -->
+  <!-- ================================================================== -->
+  <section x-show="scanCompleted && scanFiles.length > 0" x-cloak
+           class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-6 mb-6">
+    <div class="flex items-center gap-2 mb-4">
+      <svg class="w-5 h-5 text-brand-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+      <h2 class="text-lg font-semibold text-gray-900">2. Modus und Dateien waehlen</h2>
+    </div>
+
+    <!-- Mode Toggle -->
+    <div class="mb-5">
+      <label class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Umbenennen-Modus</label>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <button @click="mode = 'fast'"
+                :class="mode === 'fast' ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-200' : 'border-gray-200 hover:border-gray-300'"
+                class="flex items-start gap-3 p-4 rounded-lg border text-left transition-all">
+          <svg class="w-6 h-6 text-amber-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+          </svg>
+          <div>
+            <p class="text-sm font-medium text-gray-900">Metadaten (Schnell)</p>
+            <p class="text-xs text-gray-500 mt-0.5">Nutzt EXIF- und OS-Erstellungsdatum. Behaelt den Originalnamen bei. Ideal fuer Fotos und grosse Dateimengen.</p>
+          </div>
+        </button>
+        <button @click="mode = 'smart'"
+                :class="mode === 'smart' ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-200' : 'border-gray-200 hover:border-gray-300'"
+                class="flex items-start gap-3 p-4 rounded-lg border text-left transition-all">
+          <svg class="w-6 h-6 text-purple-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+          </svg>
+          <div>
+            <p class="text-sm font-medium text-gray-900">KI-Inhaltsanalyse (Intelligent)</p>
+            <p class="text-xs text-gray-500 mt-0.5">Liest den Dateiinhalt und generiert passende Namen via KI. Ideal fuer Dokumente, Rechnungen und Scans.</p>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <!-- File Selection -->
+    <div class="mb-4">
+      <div class="flex items-center justify-between mb-2">
+        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wider">
+          Dateien (<span x-text="selectedFileIds.length"></span> / <span x-text="scanFiles.length"></span> ausgewaehlt)
+        </label>
+        <div class="flex items-center gap-3">
+          <button @click="selectAllFiles()" class="text-xs text-brand-600 hover:text-brand-800 font-medium">Alle auswaehlen</button>
+          <button @click="deselectAllFiles()" class="text-xs text-gray-500 hover:text-gray-700 font-medium">Keine</button>
+        </div>
+      </div>
+
+      <div class="max-h-64 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+        <template x-for="file in scanFiles" :key="file.id">
+          <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer transition-colors">
+            <input type="checkbox"
+                   :value="file.id"
+                   x-model.number="selectedFileIds"
+                   class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+            <div class="flex-1 min-w-0">
+              <p class="text-sm text-gray-900 truncate" x-text="file.name"></p>
+              <p class="text-xs text-gray-400 truncate" x-text="file.path"></p>
+            </div>
+            <span class="text-xs text-gray-400 tabular-nums shrink-0" x-text="formatSize(file.size_bytes)"></span>
+          </label>
+        </template>
+      </div>
+    </div>
+
+    <!-- Generate Preview Button -->
+    <button
+      @click="generatePreview()"
+      :disabled="selectedFileIds.length === 0 || previewLoading"
+      class="flex items-center justify-center gap-2
+             bg-brand-600 hover:bg-brand-700 text-white px-6 py-2.5 rounded-lg
+             text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed
+             transition-colors shadow-sm w-full sm:w-auto"
+    >
+      <template x-if="!previewLoading">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      </template>
+      <template x-if="previewLoading">
+        <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      </template>
+      <span x-text="previewLoading ? (mode === 'smart' ? 'KI analysiert Dateien...' : 'Vorschau wird erstellt...') : 'Vorschau erstellen'"></span>
+    </button>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Step 3: Preview Table                                               -->
+  <!-- ================================================================== -->
+  <section x-show="previewItems.length > 0" x-cloak
+           x-transition:enter="transition ease-out duration-300"
+           x-transition:enter-start="opacity-0 translate-y-2"
+           x-transition:enter-end="opacity-100 translate-y-0"
+           class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+
+    <div class="px-5 sm:px-6 py-4 border-b border-gray-100">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <svg class="w-5 h-5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <h2 class="text-lg font-semibold text-gray-900">3. Vorschau pruefen</h2>
+        </div>
+        <span class="text-sm text-gray-500" x-text="previewItems.length + ' Dateien'"></span>
+      </div>
+      <p class="text-xs text-gray-500 mt-1">
+        Pruefe die Vorschlaege und passe Dateinamen bei Bedarf manuell an.
+        <span x-show="mode === 'smart'" class="text-purple-600 font-medium">KI-Modus aktiv</span>
+        <span x-show="mode === 'fast'" class="text-amber-600 font-medium">Schnellmodus aktiv</span>
+      </p>
+    </div>
+
+    <!-- Desktop Table -->
+    <div class="overflow-x-auto custom-scrollbar hidden md:block">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b border-gray-100">
+          <tr>
+            <th class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider w-[240px]">Aktueller Name</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider w-[120px]">Datum</th>
+            <th x-show="mode === 'smart'" class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider w-[200px]">KI-Vorschlag</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider">Neuer Dateiname</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          <template x-for="(item, idx) in previewItems" :key="item.scan_file_id">
+            <tr class="hover:bg-gray-50/50 transition-colors">
+              <td class="px-4 py-2.5">
+                <span class="text-gray-700 truncate block max-w-[240px]" x-text="item.current_name" :title="item.current_name"></span>
+              </td>
+              <td class="px-4 py-2.5">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-900 tabular-nums text-xs" x-text="item.found_date || '--'"></span>
+                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium"
+                        :class="{
+                          'bg-purple-100 text-purple-700': item.date_source === 'ai',
+                          'bg-blue-100 text-blue-700': item.date_source === 'exif',
+                          'bg-gray-100 text-gray-600': item.date_source === 'os'
+                        }"
+                        x-text="item.date_source === 'ai' ? 'KI' : item.date_source === 'exif' ? 'EXIF' : 'OS'"></span>
+                </div>
+              </td>
+              <td x-show="mode === 'smart'" class="px-4 py-2.5">
+                <span x-show="item.ai_suggestion" class="text-purple-700 text-xs truncate block max-w-[200px]" x-text="item.ai_suggestion"></span>
+                <span x-show="!item.ai_suggestion" class="text-gray-300 text-xs">--</span>
+              </td>
+              <td class="px-4 py-2.5">
+                <input type="text"
+                       x-model="previewItems[idx].new_filename"
+                       class="w-full border border-gray-200 rounded px-3 py-1.5 text-sm
+                              focus:ring-2 focus:ring-brand-500 focus:border-brand-500
+                              transition-colors font-mono text-gray-900"
+                       :title="previewItems[idx].new_filename" />
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Mobile Card Layout -->
+    <div class="md:hidden divide-y divide-gray-100">
+      <template x-for="(item, idx) in previewItems" :key="item.scan_file_id">
+        <div class="px-4 py-3">
+          <div class="flex items-center justify-between gap-2 mb-1">
+            <p class="text-sm font-medium text-gray-700 truncate" x-text="item.current_name"></p>
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0"
+                  :class="{
+                    'bg-purple-100 text-purple-700': item.date_source === 'ai',
+                    'bg-blue-100 text-blue-700': item.date_source === 'exif',
+                    'bg-gray-100 text-gray-600': item.date_source === 'os'
+                  }"
+                  x-text="(item.found_date || '--') + ' (' + (item.date_source === 'ai' ? 'KI' : item.date_source === 'exif' ? 'EXIF' : 'OS') + ')'"></span>
+          </div>
+          <div x-show="mode === 'smart' && item.ai_suggestion" class="text-xs text-purple-600 mb-1.5">
+            KI: <span x-text="item.ai_suggestion"></span>
+          </div>
+          <input type="text"
+                 x-model="previewItems[idx].new_filename"
+                 class="w-full border border-gray-200 rounded px-3 py-1.5 text-sm font-mono
+                        focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+        </div>
+      </template>
+    </div>
+
+    <!-- Confirm / Cancel -->
+    <div class="px-5 sm:px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+      <button @click="cancelPreview()"
+              class="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg
+                     text-sm font-medium border border-gray-300 text-gray-700
+                     hover:bg-white transition-colors">
+        Abbrechen
+      </button>
+      <button @click="executeRename()"
+              :disabled="executing"
+              class="sm:ml-auto flex items-center justify-center gap-2
+                     bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-lg
+                     text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed
+                     transition-colors shadow-sm">
+        <template x-if="!executing">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+          </svg>
+        </template>
+        <template x-if="executing">
+          <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </template>
+        <span x-text="executing ? 'Umbenennung laeuft...' : previewItems.length + ' Dateien umbenennen'"></span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Step 4: Execution Result                                            -->
+  <!-- ================================================================== -->
+  <section x-show="executionDone" x-cloak
+           x-transition:enter="transition ease-out duration-300"
+           x-transition:enter-start="opacity-0 translate-y-2"
+           x-transition:enter-end="opacity-100 translate-y-0"
+           class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-6 mb-6">
+
+    <div class="flex items-center gap-3 mb-4">
+      <template x-if="executionResult.failed === 0">
+        <svg class="w-8 h-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </template>
+      <template x-if="executionResult.failed > 0">
+        <svg class="w-8 h-8 text-amber-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+      </template>
+      <div>
+        <h2 class="text-lg font-semibold text-gray-900">Umbenennung abgeschlossen</h2>
+        <p class="text-sm text-gray-500">
+          <span class="font-medium text-green-700" x-text="executionResult.renamed + ' erfolgreich'"></span>
+          <template x-if="executionResult.failed > 0">
+            <span>, <span class="font-medium text-red-600" x-text="executionResult.failed + ' fehlgeschlagen'"></span></span>
+          </template>
+        </p>
+      </div>
+    </div>
+
+    <!-- Errors -->
+    <div x-show="executionResult.errors && executionResult.errors.length > 0" class="mb-4">
+      <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+        <p class="text-sm font-medium text-red-800 mb-2">Fehler:</p>
+        <ul class="list-disc list-inside text-sm text-red-700 space-y-1">
+          <template x-for="err in executionResult.errors" :key="err">
+            <li x-text="err"></li>
+          </template>
+        </ul>
+      </div>
+    </div>
+
+    <button @click="resetAll()"
+            class="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white
+                   px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+      </svg>
+      Neuen Durchlauf starten
+    </button>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Initial State                                                       -->
+  <!-- ================================================================== -->
+  <section x-show="!scanning && !scanCompleted && !executionDone"
+           class="bg-white rounded-xl shadow-sm border border-gray-200 border-dashed p-8 sm:p-12 text-center">
+    <svg class="mx-auto w-16 h-16 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+    </svg>
+    <h3 class="text-lg font-medium text-gray-700 mb-1">Dateien umbenennen</h3>
+    <p class="text-sm text-gray-500 max-w-md mx-auto">
+      Scanne einen Ordner, waehle Dateien aus und benenne sie automatisch um --
+      entweder schnell per Metadaten oder intelligent per KI-Analyse.
+    </p>
+    <p class="text-xs text-gray-400 mt-3">
+      Jede Datei erhaelt das Format:
+      <code class="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600 font-mono text-[10px]">YYYY-MM-DD_beschreibung.ext</code>
+    </p>
+  </section>
+
+</div>
+
+<!-- ================================================================== -->
+<!-- Alpine.js App Logic                                                 -->
+<!-- ================================================================== -->
+<script>
+function renameApp() {
+  return {
+    // Step 1: Scan
+    sourcePath: '',
+    recursive: true,
+    pickingFolder: false,
+    scanning: false,
+    scanId: null,
+    scanFileCount: 0,
+    scanTotalCount: 0,
+    scanCompleted: false,
+    scanFiles: [],
+    error: null,
+    pollInterval: null,
+
+    // Step 2: Mode + Selection
+    mode: 'fast',
+    selectedFileIds: [],
+
+    // Step 3: Preview
+    previewLoading: false,
+    previewItems: [],
+    batchId: null,
+
+    // Step 4: Execution
+    executing: false,
+    executionDone: false,
+    executionResult: { renamed: 0, failed: 0, errors: [] },
+    executionPollInterval: null,
+
+    init() {},
+
+    // ---- Folder picker ----
+    async pickFolder() {
+      this.error = null;
+      this.pickingFolder = true;
+      try {
+        const resp = await fetch('/scan/pick-folder', { method: 'POST' });
+        const data = await resp.json();
+        if (data.path) this.sourcePath = data.path;
+      } catch (e) {
+        this.error = 'Ordner-Dialog konnte nicht geoeffnet werden.';
+      } finally {
+        this.pickingFolder = false;
+      }
+    },
+
+    // ---- Scan ----
+    async startScan() {
+      this.error = null;
+      this.scanning = true;
+      this.scanCompleted = false;
+      this.scanFiles = [];
+      this.scanFileCount = 0;
+      this.scanTotalCount = 0;
+      this.selectedFileIds = [];
+      this.previewItems = [];
+      this.executionDone = false;
+
+      try {
+        const resp = await fetch('/scan/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source_path: this.sourcePath.trim(),
+            recursive: this.recursive,
+          }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.error = err.detail || 'Scan konnte nicht gestartet werden.';
+          this.scanning = false;
+          return;
+        }
+
+        const data = await resp.json();
+        this.scanId = data.scan_id;
+        this.pollInterval = setInterval(() => this.pollScanStatus(), 500);
+      } catch (e) {
+        this.error = 'Netzwerkfehler: ' + e.message;
+        this.scanning = false;
+      }
+    },
+
+    async pollScanStatus() {
+      if (!this.scanId) return;
+      try {
+        const resp = await fetch(`/scan/${this.scanId}/status`);
+        const data = await resp.json();
+        this.scanFileCount = data.file_count;
+        this.scanTotalCount = data.total_count || 0;
+
+        if (data.status === 'completed' || data.status === 'failed') {
+          clearInterval(this.pollInterval);
+          this.pollInterval = null;
+          this.scanning = false;
+
+          if (data.status === 'completed') {
+            this.scanCompleted = true;
+            await this.loadScanFiles();
+          } else {
+            this.error = 'Scan fehlgeschlagen.';
+          }
+        }
+      } catch (e) { /* keep polling */ }
+    },
+
+    async loadScanFiles() {
+      if (!this.scanId) return;
+      try {
+        const resp = await fetch(`/scan/${this.scanId}/files?page_size=500`);
+        const data = await resp.json();
+        this.scanFiles = data.files || [];
+        // Auto-select all files
+        this.selectedFileIds = this.scanFiles.map(f => f.id);
+      } catch (e) {
+        this.error = 'Dateiliste konnte nicht geladen werden.';
+      }
+    },
+
+    selectAllFiles() {
+      this.selectedFileIds = this.scanFiles.map(f => f.id);
+    },
+
+    deselectAllFiles() {
+      this.selectedFileIds = [];
+    },
+
+    // ---- Preview ----
+    async generatePreview() {
+      this.error = null;
+      this.previewLoading = true;
+      this.previewItems = [];
+
+      try {
+        const resp = await fetch('/rename/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scan_id: this.scanId,
+            mode: this.mode,
+            file_ids: this.selectedFileIds,
+          }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.error = err.detail || 'Vorschau konnte nicht erstellt werden.';
+          return;
+        }
+
+        const data = await resp.json();
+        this.batchId = data.batch_id;
+        this.previewItems = data.items || [];
+      } catch (e) {
+        this.error = 'Netzwerkfehler: ' + e.message;
+      } finally {
+        this.previewLoading = false;
+      }
+    },
+
+    cancelPreview() {
+      this.previewItems = [];
+      this.batchId = null;
+    },
+
+    // ---- Execute ----
+    async executeRename() {
+      this.error = null;
+      this.executing = true;
+
+      const items = this.previewItems.map(item => ({
+        scan_file_id: item.scan_file_id,
+        new_filename: item.new_filename,
+      }));
+
+      try {
+        const resp = await fetch('/rename/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            batch_id: this.batchId,
+            mode: this.mode,
+            items: items,
+          }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.error = err.detail || 'Umbenennung konnte nicht gestartet werden.';
+          this.executing = false;
+          return;
+        }
+
+        // Start polling for completion
+        this.executionPollInterval = setInterval(() => this.pollExecution(), 500);
+      } catch (e) {
+        this.error = 'Netzwerkfehler: ' + e.message;
+        this.executing = false;
+      }
+    },
+
+    async pollExecution() {
+      try {
+        const resp = await fetch(`/rename/batch/${this.batchId}/status`);
+        const data = await resp.json();
+
+        if (data.done) {
+          clearInterval(this.executionPollInterval);
+          this.executionPollInterval = null;
+          this.executing = false;
+          this.executionDone = true;
+          this.previewItems = [];
+          this.executionResult = {
+            renamed: data.renamed || 0,
+            failed: data.failed || 0,
+            errors: data.errors || [],
+          };
+        }
+      } catch (e) { /* keep polling */ }
+    },
+
+    // ---- Helpers ----
+    resetAll() {
+      this.scanCompleted = false;
+      this.scanFiles = [];
+      this.selectedFileIds = [];
+      this.previewItems = [];
+      this.batchId = null;
+      this.executionDone = false;
+      this.executionResult = { renamed: 0, failed: 0, errors: [] };
+      this.error = null;
+    },
+
+    formatSize(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let i = 0;
+      let size = bytes;
+      while (size >= 1024 && i < units.length - 1) {
+        size /= 1024;
+        i++;
+      }
+      return size.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+    },
+  };
+}
+</script>
+
 {% endblock %}

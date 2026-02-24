@@ -1,8 +1,8 @@
 # PROJ-3: AI-gestützter & Inhaltsbasierter Datei-Umbenenner
 
-## Status: Geplant
+## Status: Fertig
 **Erstellt:** 2026-02-23
-**Zuletzt aktualisiert:** 2026-02-23
+**Zuletzt aktualisiert:** 2026-02-24
 
 ## Abhängigkeiten
 - Benötigt: PROJ-1 (Verzeichnis-Scanner) – liefert die zu verarbeitenden Dateien.
@@ -64,7 +64,68 @@
 - Kein eigener HTTP-Code: Delegiert an core/ai_service.py
 
 ## QA Testergebnisse
-_Wird durch /qa ergänzt_
+**Getestet am:** 2026-02-24
+**Ergebnis:** BESTANDEN (1 Bug gefunden und behoben)
+
+### Akzeptanzkriterien
+
+- [x] UI bietet Toggle für `Metadaten (Schnell)` vs. `KI-Inhaltsanalyse (Intelligent)` — `templates/rename.html` Step 2
+- [x] Jede Datei folgt strikt `YYYY-MM-DD_beschreibender_text.ext` — `_build_target_filename()` verifiziert
+- [x] Smart Mode: Text-Extraktion via `utils/text_extractor.py`, max. 2.000 Zeichen (`MAX_CHARS = 2000`) — verifiziert
+- [x] Fallback-Kette AI → EXIF → OS — `_generate_smart_preview()` implementiert und korrekt
+- [x] Vorschau-Tabelle mit 4 Spalten (Aktueller Name, Datum, KI-Vorschlag, Ziel-Dateiname) — `RenamePreviewItem` vollständig
+- [x] Nutzer kann Vorschlag in der Tabelle überschreiben (`editable=True`, `new_filename` editierbar)
+- [x] Umbenennung in `operation_log` mit `batch_id`, `operation_type='RENAME'`, `mode`, `timestamp` protokolliert
+
+### Tests & Ergebnisse
+
+| Test | Ergebnis |
+|------|----------|
+| Alle Module importieren ohne Fehler | ✓ |
+| `text_extractor`: Klartext-Extraktion | ✓ |
+| `text_extractor`: Fehlende Datei → `("", False)` | ✓ |
+| `text_extractor`: Nicht unterstützte Endung → `("", False)` | ✓ |
+| `text_extractor`: 2000-Zeichen-Cap korrekt | ✓ |
+| `_sanitize_filename`: Leerzeichen → `_`, Kleinschreibung | ✓ |
+| `_sanitize_filename`: Maximale Länge 60 Zeichen | ✓ |
+| `_sanitize_filename`: Leerer String → `"unnamed"` | ✓ |
+| `_validate_date`: Zukunftsdaten rejected | ✓ |
+| `_validate_date`: Vor-1900-Daten rejected | ✓ |
+| `_validate_date`: Ungültige Strings rejected | ✓ |
+| `_build_target_filename`: Korrekte `YYYY-MM-DD_name.ext` Ausgabe | ✓ |
+| `_resolve_name_conflict`: Anhängen von `_01`, `_02` | ✓ |
+| Pydantic: Pfad-Traversal (`../etc/passwd`) blockiert | ✓ |
+| Pydantic: Null-Byte-Injection blockiert | ✓ |
+| Pydantic: Leerer Dateiname blockiert | ✓ |
+| Pydantic: >500 Datei-IDs blockiert | ✓ |
+
+### Behobene Bugs
+
+- **BUG-QA-1 (behoben):** `_sanitize_filename()` entfernte `/`, `:` und `\` lautlos anstatt sie in `_` umzuwandeln. Resultat: `rechnung/telekom:internet` wurde zu `rechnungtelekominternet` statt `rechnung_telekom_internet`. Fix: Explizite Ersetzung dieser Zeichen vor dem Regex-Cleanup in `core/renamer.py:135`.
 
 ## Deployment
-_Wird durch /deploy ergänzt_
+**Deployed am:** 2026-02-24
+**Typ:** Lokal (macOS, uvicorn)
+
+### Lokaler Deployment-Check (2026-02-24)
+- [x] `python -c "import main"` – App startet ohne Fehler
+- [x] Alle PROJ-3-Module laden korrekt (`utils/text_extractor`, `core/renamer`, `api/rename`)
+- [x] Alle Python-Abhängigkeiten in `requirements.txt` eingetragen (`pypdf`, `pytesseract`, `Pillow`, `exifread`)
+- [x] `tesseract` (v5.5.1) als System-Binary vorhanden – OCR funktionsfähig
+- [x] Keine hardcodierten Absolut-Pfade im Code
+- [x] Keine Secrets im Code – API-Keys nur via `.env`-Datei
+- [x] Destructive Operation (Umbenennen) erfordert explizite UI-Bestätigung (Preview-Schritt)
+- [x] SQLite-Datenbank liegt in `/data/` – nicht im Source-Verzeichnis
+
+### Start-Kommando
+```bash
+source venv/bin/activate
+uvicorn main:app --reload --port 8000
+# Rename-UI: http://localhost:8000/rename
+```
+
+### Systemvoraussetzung: tesseract (nur für OCR)
+```bash
+# macOS (einmalig, falls nicht vorhanden)
+brew install tesseract
+```
