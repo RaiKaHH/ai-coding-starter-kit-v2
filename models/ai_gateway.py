@@ -1,9 +1,12 @@
 """
 Pydantic models for PROJ-6: KI-Integrations-Schicht (AI Gateway).
 """
+import ipaddress
+import re
 from typing import Literal
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, field_validator
 
 
 AIProvider = Literal["ollama", "mistral", "openai"]
@@ -16,9 +19,58 @@ AIProvider = Literal["ollama", "mistral", "openai"]
 class AISettingsUpdate(BaseModel):
     """Request body for PUT /ai/settings."""
     provider: AIProvider = "ollama"
-    model_name: str = Field("llama3", description="Model identifier, e.g. 'llama3', 'mistral'")
+    model_name: str = Field(
+        "llama3",
+        min_length=1,
+        max_length=100,
+        description="Model identifier, e.g. 'llama3', 'mistral'",
+    )
     ollama_url: str = Field("http://localhost:11434", description="Ollama API base URL")
     api_key: SecretStr | None = Field(None, description="Cloud API key (stored in .env, not DB)")
+
+    @field_validator("model_name")
+    @classmethod
+    def validate_model_name(cls, v: str) -> str:
+        """BUG-4: Reject empty, HTML, and overlong model names."""
+        if not re.match(r"^[a-zA-Z0-9._:/-]+$", v):
+            raise ValueError(
+                "Modell-Name darf nur Buchstaben, Ziffern sowie . _ : / - enthalten."
+            )
+        return v
+
+    @field_validator("ollama_url")
+    @classmethod
+    def validate_ollama_url(cls, v: str) -> str:
+        """BUG-3: Allow only localhost and private/loopback IPs (SSRF protection)."""
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("Ollama URL muss http:// oder https:// verwenden.")
+        hostname = parsed.hostname
+        if hostname is None:
+            raise ValueError("Ungültige Ollama URL.")
+        if hostname.lower() == "localhost":
+            return v
+        try:
+            addr = ipaddress.ip_address(hostname)
+        except ValueError:
+            raise ValueError(
+                "Ollama URL: Nur 'localhost' oder private IP-Adressen erlaubt (SSRF-Schutz)."
+            )
+        if not (addr.is_loopback or addr.is_private):
+            raise ValueError(
+                "Ollama URL: Nur 'localhost' oder private IP-Adressen erlaubt (SSRF-Schutz)."
+            )
+        return v
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def sanitize_api_key(cls, v: object) -> object:
+        """BUG-2: Strip newlines and null bytes to prevent .env injection."""
+        if v is None:
+            return v
+        if isinstance(v, str):
+            return v.replace("\n", "").replace("\r", "").replace("\x00", "")
+        return v
 
 
 class AISettingsResponse(BaseModel):

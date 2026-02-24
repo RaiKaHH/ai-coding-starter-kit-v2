@@ -1,6 +1,286 @@
 {% extends "base.html" %}
 {% block title %}{{ page_title }}{% endblock %}
 {% block content %}
-<!-- TODO: implement in /frontend phase -->
-<h1 class="text-2xl font-bold">{{ page_title }}</h1>
+
+<div class="max-w-2xl mx-auto"
+     x-data="{
+       provider: 'ollama',
+       model_name: 'llama3',
+       ollama_url: 'http://localhost:11434',
+       api_key: '',
+       api_key_set: false,
+
+       loading: false,
+       saveSuccess: false,
+       saveError: '',
+
+       testing: false,
+       testResult: null,
+
+       get modelOptions() {
+         const opts = {
+           ollama:  ['llama3', 'llama3:8b', 'llama3:70b', 'mistral', 'codellama', 'phi3'],
+           mistral: ['mistral-small-latest', 'mistral-medium-latest', 'mistral-large-latest'],
+           openai:  ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+         };
+         return opts[this.provider] || [];
+       },
+
+       async init() {
+         const providerDefaults = {
+           ollama: 'llama3',
+           mistral: 'mistral-small-latest',
+           openai: 'gpt-4o-mini',
+         };
+         this.$watch('provider', (val) => {
+           this.model_name = providerDefaults[val] || '';
+         });
+         try {
+           const resp = await fetch('/ai/settings/data');
+           if (resp.ok) {
+             const data = await resp.json();
+             this.provider = data.provider;
+             this.model_name = data.model_name;
+             this.ollama_url = data.ollama_url;
+             this.api_key_set = data.api_key_set;
+           }
+         } catch (e) {
+           console.error('Einstellungen konnten nicht geladen werden', e);
+         }
+       },
+
+       async saveSettings() {
+         this.loading = true;
+         this.saveSuccess = false;
+         this.saveError = '';
+         try {
+           const body = {
+             provider: this.provider,
+             model_name: this.model_name,
+             ollama_url: this.ollama_url,
+           };
+           if (this.api_key) {
+             body.api_key = this.api_key;
+           }
+           const resp = await fetch('/ai/settings/data', {
+             method: 'PUT',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify(body),
+           });
+           if (!resp.ok) throw new Error('Speichern fehlgeschlagen');
+           const data = await resp.json();
+           this.api_key_set = data.api_key_set;
+           this.api_key = '';
+           this.saveSuccess = true;
+           setTimeout(() => this.saveSuccess = false, 3000);
+         } catch (e) {
+           this.saveError = e.message || 'Unbekannter Fehler';
+         } finally {
+           this.loading = false;
+         }
+       },
+
+       async testConnection() {
+         this.testing = true;
+         this.testResult = null;
+         try {
+           const resp = await fetch('/ai/test', { method: 'POST' });
+           this.testResult = await resp.json();
+         } catch (e) {
+           this.testResult = { success: false, message: 'Netzwerkfehler', latency_ms: null };
+         } finally {
+           this.testing = false;
+         }
+       }
+     }">
+
+  <!-- Page Header -->
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">{{ page_title }}</h1>
+    <p class="mt-1 text-sm text-gray-500">
+      Konfiguriere den KI-Provider fuer Datei-Analyse, Umbenennung und Smart Sorting.
+    </p>
+  </div>
+
+  <!-- Settings Card -->
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 divide-y divide-gray-200">
+
+    <!-- Provider Selection -->
+    <div class="p-6">
+      <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Provider</h2>
+      <div class="space-y-3">
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input type="radio" name="provider" value="ollama"
+                 x-model="provider"
+                 class="w-4 h-4 text-brand-600 focus:ring-brand-500" />
+          <div>
+            <span class="font-medium text-gray-900">Ollama</span>
+            <span class="text-sm text-gray-500 ml-1">(lokal, Standard)</span>
+          </div>
+        </label>
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input type="radio" name="provider" value="mistral"
+                 x-model="provider"
+                 class="w-4 h-4 text-brand-600 focus:ring-brand-500" />
+          <div>
+            <span class="font-medium text-gray-900">Mistral</span>
+            <span class="text-sm text-gray-500 ml-1">(Cloud)</span>
+          </div>
+        </label>
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input type="radio" name="provider" value="openai"
+                 x-model="provider"
+                 class="w-4 h-4 text-brand-600 focus:ring-brand-500" />
+          <div>
+            <span class="font-medium text-gray-900">OpenAI</span>
+            <span class="text-sm text-gray-500 ml-1">(Cloud)</span>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Model Configuration -->
+    <div class="p-6">
+      <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Modell-Konfiguration</h2>
+      <div class="space-y-4">
+        <div>
+          <label for="model_name" class="block text-sm font-medium text-gray-700 mb-1">
+            Modell
+          </label>
+          <select id="model_name"
+                  x-model="model_name"
+                  class="w-full rounded-md border-gray-300 shadow-sm focus:border-brand-500 focus:ring-brand-500 text-sm px-3 py-2 border bg-white">
+            <template x-for="opt in modelOptions" :key="opt">
+              <option :value="opt" x-text="opt" :selected="opt === model_name"></option>
+            </template>
+          </select>
+        </div>
+
+        <!-- Ollama URL (only for Ollama) -->
+        <div x-show="provider === 'ollama'" x-transition>
+          <label for="ollama_url" class="block text-sm font-medium text-gray-700 mb-1">
+            Ollama Basis-URL
+          </label>
+          <input type="text" id="ollama_url"
+                 x-model="ollama_url"
+                 placeholder="http://localhost:11434"
+                 class="w-full rounded-md border-gray-300 shadow-sm focus:border-brand-500 focus:ring-brand-500 text-sm px-3 py-2 border" />
+        </div>
+      </div>
+    </div>
+
+    <!-- API Key (only for cloud providers) -->
+    <div x-show="provider !== 'ollama'" x-transition class="p-6">
+      <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">API-Key</h2>
+
+      <template x-if="api_key_set && !api_key">
+        <div class="flex items-center gap-2 mb-3 text-sm text-green-700 bg-green-50 rounded-md px-3 py-2">
+          <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          API-Key ist gesetzt.
+        </div>
+      </template>
+
+      <div>
+        <label for="api_key" class="block text-sm font-medium text-gray-700 mb-1">
+          <span x-text="provider === 'mistral' ? 'Mistral API-Key' : 'OpenAI API-Key'"></span>
+        </label>
+        <input type="password" id="api_key"
+               x-model="api_key"
+               :placeholder="api_key_set ? 'Neuen Key eingeben zum Ueberschreiben...' : 'API-Key eingeben...'"
+               class="w-full rounded-md border-gray-300 shadow-sm focus:border-brand-500 focus:ring-brand-500 text-sm px-3 py-2 border" />
+        <p class="mt-1 text-xs text-gray-400">
+          Wird nur in der .env-Datei gespeichert, nicht in der Datenbank.
+        </p>
+      </div>
+    </div>
+
+    <!-- Save Button -->
+    <div class="p-6">
+      <div class="flex items-center gap-3">
+        <button @click="saveSettings()"
+                :disabled="loading"
+                class="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-md hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          <template x-if="loading">
+            <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+          </template>
+          Einstellungen speichern
+        </button>
+
+        <!-- Success feedback -->
+        <span x-show="saveSuccess" x-transition
+              class="text-sm text-green-600 font-medium">
+          Gespeichert!
+        </span>
+
+        <!-- Error feedback -->
+        <span x-show="saveError" x-transition
+              class="text-sm text-red-600 font-medium"
+              x-text="saveError">
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Connection Test Card -->
+  <div class="mt-6 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+    <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">Verbindungstest</h2>
+
+    <button @click="testConnection()"
+            :disabled="testing"
+            class="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border border-gray-300">
+      <template x-if="testing">
+        <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+        </svg>
+      </template>
+      <template x-if="!testing">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z" />
+        </svg>
+      </template>
+      Verbindung testen
+    </button>
+
+    <!-- Test Result -->
+    <template x-if="testResult !== null">
+      <div class="mt-4">
+        <!-- Success -->
+        <div x-show="testResult.success"
+             class="flex items-center gap-2 rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800">
+          <svg class="w-5 h-5 flex-shrink-0 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span x-text="testResult.message"></span>
+          <template x-if="testResult.latency_ms">
+            <span class="ml-1 text-green-600 font-mono"
+                  x-text="'(' + testResult.latency_ms + ' ms)'"></span>
+          </template>
+        </div>
+
+        <!-- Error -->
+        <div x-show="!testResult.success"
+             class="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
+          <svg class="w-5 h-5 flex-shrink-0 text-red-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+          <div>
+            <span x-text="testResult.message"></span>
+            <template x-if="testResult.latency_ms">
+              <span class="ml-1 text-red-600 font-mono"
+                    x-text="'(' + testResult.latency_ms + ' ms)'"></span>
+            </template>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+
+</div>
+
 {% endblock %}
