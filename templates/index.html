@@ -1,6 +1,536 @@
 {% extends "base.html" %}
-{% block title %}{{ page_title }}{% endblock %}
+{% block title %}Indexer -- Ordner lernen{% endblock %}
 {% block content %}
-<!-- TODO: implement in /frontend phase -->
-<h1 class="text-2xl font-bold">{{ page_title }}</h1>
+
+<div x-data="indexerApp()" x-init="init()">
+
+  <!-- Page Header -->
+  <div class="mb-6">
+    <h1 class="text-2xl sm:text-3xl font-bold text-gray-900">Indexer -- Ordner lernen</h1>
+    <p class="mt-1 text-sm text-gray-500">
+      Richte das Tool auf einen gut organisierten Ordner und es lernt automatisch die Struktur dahinter.
+    </p>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- Section 1: Folder Selection                                         -->
+  <!-- ================================================================== -->
+  <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-6 mb-6" aria-label="Trainings-Ordner waehlen">
+
+    <div class="flex items-center gap-2 mb-4">
+      <svg class="w-5 h-5 text-brand-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342" />
+      </svg>
+      <h2 class="text-lg font-semibold text-gray-900">Muster-Ordner waehlen</h2>
+    </div>
+
+    <!-- Path Input Row -->
+    <div class="flex flex-col sm:flex-row gap-3">
+      <div class="flex-1 relative">
+        <input
+          type="text"
+          x-model="folderPath"
+          placeholder="/Users/dein-name/Archiv/Steuer"
+          :disabled="indexing"
+          aria-label="Ordnerpfad eingeben"
+          class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm
+                 focus:ring-2 focus:ring-brand-500 focus:border-brand-500
+                 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed
+                 placeholder:text-gray-400 transition-colors"
+          @keydown.enter="startIndexing()"
+        />
+        <button
+          x-show="folderPath && !indexing"
+          x-cloak
+          @click="folderPath = ''"
+          class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          aria-label="Pfad loeschen"
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <button
+        @click="pickFolder()"
+        :disabled="indexing || pickingFolder"
+        class="flex items-center justify-center gap-2 bg-white hover:bg-gray-50
+               text-gray-700 px-4 py-2.5 rounded-lg border border-gray-300
+               text-sm font-medium whitespace-nowrap
+               disabled:opacity-50 disabled:cursor-not-allowed
+               transition-colors shrink-0"
+        aria-label="Ordner ueber Finder auswaehlen"
+      >
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" />
+        </svg>
+        <span x-show="!pickingFolder">Ordner auswaehlen</span>
+        <span x-show="pickingFolder">Warte auf Finder...</span>
+      </button>
+    </div>
+
+    <!-- Start Button -->
+    <div class="mt-4 flex justify-end">
+      <button
+        @click="startIndexing()"
+        :disabled="indexing || !folderPath.trim()"
+        class="flex items-center justify-center gap-2
+               bg-brand-600 hover:bg-brand-700 active:bg-brand-800
+               text-white px-6 py-2.5 rounded-lg text-sm font-medium
+               disabled:opacity-50 disabled:cursor-not-allowed
+               transition-colors shadow-sm"
+      >
+        <template x-if="!indexing">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342" />
+          </svg>
+        </template>
+        <template x-if="indexing">
+          <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </template>
+        <span x-text="indexing ? 'Indexierung laeuft...' : 'Indexierung starten'"></span>
+      </button>
+    </div>
+
+    <!-- Error Message -->
+    <div
+      x-show="error"
+      x-cloak
+      x-transition
+      class="mt-4 flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm"
+      role="alert"
+    >
+      <svg class="w-5 h-5 shrink-0 mt-0.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+      </svg>
+      <span x-text="error"></span>
+      <button @click="error = null" class="ml-auto text-red-400 hover:text-red-600 shrink-0" aria-label="Fehler schliessen">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Section 2: Progress Indicator                                       -->
+  <!-- ================================================================== -->
+  <section
+    x-show="indexing || status === 'completed' || status === 'failed'"
+    x-cloak
+    x-transition:enter="transition ease-out duration-300"
+    x-transition:enter-start="opacity-0 translate-y-2"
+    x-transition:enter-end="opacity-100 translate-y-0"
+    class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-6 mb-6"
+    aria-label="Indexierungs-Fortschritt"
+  >
+    <!-- Status Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+      <div class="flex items-center gap-2">
+        <template x-if="indexing">
+          <span class="flex h-3 w-3 relative">
+            <span class="scan-pulse absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3 w-3 bg-brand-500"></span>
+          </span>
+        </template>
+        <template x-if="status === 'completed'">
+          <svg class="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </template>
+        <template x-if="status === 'failed'">
+          <svg class="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </template>
+
+        <span class="text-sm font-medium">
+          <span x-show="indexing" class="text-brand-700">Indexierung laeuft...</span>
+          <span x-show="status === 'completed'" class="text-green-700">Indexierung abgeschlossen</span>
+          <span x-show="status === 'failed'" class="text-red-700">Indexierung fehlgeschlagen</span>
+        </span>
+      </div>
+
+      <span class="text-sm text-gray-500 tabular-nums">
+        <template x-if="totalCount > 0">
+          <span>
+            Ordner <span x-text="processedCount"></span>
+            / <span x-text="totalCount"></span>
+          </span>
+        </template>
+        <template x-if="totalCount === 0 && indexing">
+          <span class="italic">Ordnerstruktur wird analysiert...</span>
+        </template>
+      </span>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+      <div
+        class="h-2 rounded-full transition-all duration-500 ease-out"
+        :class="{
+          'bg-brand-500': indexing,
+          'bg-green-500': status === 'completed',
+          'bg-red-500': status === 'failed'
+        }"
+        :style="!indexing && (status === 'completed' || status === 'failed') ? 'width: 100%' : (totalCount > 0 ? 'width: ' + Math.min(99, Math.round(processedCount / totalCount * 100)) + '%' : 'width: 15%')"
+      ></div>
+    </div>
+
+    <!-- Error detail -->
+    <p x-show="statusError" x-cloak class="mt-2 text-xs text-red-500" x-text="statusError"></p>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Section 3: Learned Folder Profiles                                  -->
+  <!-- ================================================================== -->
+  <section
+    x-show="profiles.length > 0"
+    x-cloak
+    x-transition:enter="transition ease-out duration-300 delay-100"
+    x-transition:enter-start="opacity-0 translate-y-2"
+    x-transition:enter-end="opacity-100 translate-y-0"
+    aria-label="Gelernte Ordner-Profile"
+  >
+    <!-- Section Header -->
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <h2 class="text-lg font-semibold text-gray-900">Gelernte Ordner-Profile</h2>
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-100 text-brand-800"
+              x-text="profiles.length + ' Profile'"></span>
+      </div>
+      <button
+        @click="exportYaml()"
+        :disabled="profiles.length === 0"
+        class="flex items-center gap-2 bg-green-600 hover:bg-green-700
+               text-white px-4 py-2 rounded-lg text-sm font-medium
+               disabled:opacity-50 disabled:cursor-not-allowed
+               transition-colors shadow-sm"
+      >
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+        </svg>
+        Regeln fuer PROJ-2 exportieren
+      </button>
+    </div>
+
+    <!-- Profile Cards Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
+      <template x-for="profile in profiles" :key="profile.id">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col">
+          <!-- Folder path -->
+          <div class="flex items-start justify-between gap-2 mb-3">
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-bold text-gray-900 truncate" :title="profile.folder_path"
+                 x-text="shortenPath(profile.folder_path)"></p>
+            </div>
+            <!-- Delete button -->
+            <button
+              @click="confirmDelete(profile)"
+              class="text-gray-400 hover:text-red-500 shrink-0 p-1 rounded-md hover:bg-red-50 transition-colors"
+              :aria-label="'Profil loeschen: ' + profile.folder_path"
+            >
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- AI description -->
+          <p class="text-sm text-gray-500 italic mb-3 line-clamp-2"
+             x-text="profile.ai_description || 'Keine KI-Beschreibung (Offline-Modus)'"></p>
+
+          <!-- Keywords -->
+          <div class="flex flex-wrap gap-1.5 mb-3">
+            <template x-for="kw in profile.keywords" :key="kw">
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-brand-50 text-brand-700 border border-brand-200"
+                    x-text="kw"></span>
+            </template>
+          </div>
+
+          <!-- Metadata row -->
+          <div class="mt-auto pt-3 border-t border-gray-100 flex items-center gap-3 text-xs text-gray-400">
+            <span x-text="profile.file_count + ' Dateien'"></span>
+            <span x-show="profile.primary_extension" class="text-gray-300">|</span>
+            <span x-show="profile.primary_extension" x-text="profile.primary_extension"></span>
+            <span class="text-gray-300">|</span>
+            <span x-text="formatDate(profile.indexed_at)"></span>
+          </div>
+        </div>
+      </template>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Empty State (no profiles, not indexing)                             -->
+  <!-- ================================================================== -->
+  <section
+    x-show="profiles.length === 0 && !indexing && status !== 'running'"
+    class="bg-white rounded-xl shadow-sm border border-gray-200 border-dashed p-8 sm:p-12 text-center"
+    aria-label="Kein Wissen vorhanden"
+  >
+    <svg class="mx-auto w-16 h-16 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342" />
+    </svg>
+    <h3 class="text-lg font-medium text-gray-700 mb-1">Kein Wissen vorhanden</h3>
+    <p class="text-sm text-gray-500 max-w-md mx-auto">
+      Waehle oben einen gut organisierten Muster-Ordner aus (z.B. dein Steuer- oder Rechnungs-Archiv),
+      damit das Tool die Struktur lernen kann.
+    </p>
+    <p class="text-xs text-gray-400 mt-3">
+      Das Tool analysiert nur Dateinamen und Ordnerstrukturen -- keine Dateiinhalte.
+    </p>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Delete Confirmation Dialog                                          -->
+  <!-- ================================================================== -->
+  <div
+    x-show="deleteConfirm !== null"
+    x-cloak
+    x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0"
+    x-transition:enter-end="opacity-100"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+    @click.self="deleteConfirm = null"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Profil loeschen bestaetigen"
+  >
+    <div
+      class="bg-white rounded-xl shadow-xl max-w-md w-full p-6"
+      x-transition:enter="transition ease-out duration-200"
+      x-transition:enter-start="opacity-0 scale-95"
+      x-transition:enter-end="opacity-100 scale-100"
+    >
+      <div class="flex items-start gap-3 mb-4">
+        <div class="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+          <svg class="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+          </svg>
+        </div>
+        <div>
+          <h3 class="text-lg font-semibold text-gray-900">Profil loeschen?</h3>
+          <p class="text-sm text-gray-500 mt-1">
+            Das gelernte Wissen fuer diesen Ordner wird unwiderruflich entfernt:
+          </p>
+          <p class="text-sm font-mono text-gray-700 mt-2 bg-gray-50 rounded-md px-3 py-1.5 truncate"
+             x-text="deleteConfirm?.folder_path"></p>
+        </div>
+      </div>
+      <div class="flex justify-end gap-3">
+        <button
+          @click="deleteConfirm = null"
+          class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300
+                 rounded-lg hover:bg-gray-50 transition-colors"
+        >Abbrechen</button>
+        <button
+          @click="executeDelete()"
+          class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg
+                 hover:bg-red-700 transition-colors"
+        >Loeschen</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ================================================================== -->
+<!-- Alpine.js App Logic                                                 -->
+<!-- ================================================================== -->
+<script>
+function indexerApp() {
+  return {
+    // Input state
+    folderPath: '',
+    pickingFolder: false,
+
+    // Indexing state
+    indexing: false,
+    status: null,       // 'running' | 'completed' | 'failed'
+    processedCount: 0,
+    totalCount: 0,
+    statusError: null,
+    error: null,
+    pollInterval: null,
+
+    // Profiles
+    profiles: [],
+
+    // Delete confirmation
+    deleteConfirm: null,
+
+    async init() {
+      // Load existing profiles on page load
+      await this.loadProfiles();
+    },
+
+    // ----- Folder picker -----
+    async pickFolder() {
+      this.error = null;
+      this.pickingFolder = true;
+      try {
+        const resp = await fetch('/index/pick-folder', { method: 'POST' });
+        const data = await resp.json();
+        if (data.path) {
+          this.folderPath = data.path;
+        }
+      } catch (e) {
+        this.error = 'Der Ordner-Dialog konnte nicht geoeffnet werden. Bitte gib den Pfad manuell ein.';
+      } finally {
+        this.pickingFolder = false;
+      }
+    },
+
+    // ----- Start indexing -----
+    async startIndexing() {
+      if (!this.folderPath.trim()) return;
+
+      this.error = null;
+      this.indexing = true;
+      this.status = 'running';
+      this.processedCount = 0;
+      this.totalCount = 0;
+      this.statusError = null;
+
+      try {
+        const resp = await fetch('/index/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder_path: this.folderPath.trim() }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.error = err.detail || 'Die Indexierung konnte nicht gestartet werden.';
+          this.indexing = false;
+          this.status = 'failed';
+          return;
+        }
+
+        // Start polling every 2s
+        this.pollInterval = setInterval(() => this.pollStatus(), 2000);
+      } catch (e) {
+        this.error = 'Netzwerkfehler: ' + e.message;
+        this.indexing = false;
+        this.status = 'failed';
+      }
+    },
+
+    // ----- Poll status -----
+    async pollStatus() {
+      try {
+        const resp = await fetch('/index/status');
+        const data = await resp.json();
+
+        this.processedCount = data.processed_count;
+        this.totalCount = data.total_count;
+        this.status = data.status;
+        this.statusError = data.error;
+
+        if (data.status === 'completed' || data.status === 'failed') {
+          clearInterval(this.pollInterval);
+          this.pollInterval = null;
+          this.indexing = false;
+
+          if (data.status === 'completed') {
+            await this.loadProfiles();
+          }
+        }
+      } catch (e) {
+        // Polling error -- keep trying silently
+      }
+    },
+
+    // ----- Load profiles -----
+    async loadProfiles() {
+      try {
+        const resp = await fetch('/index/profiles');
+        if (resp.ok) {
+          this.profiles = await resp.json();
+        }
+      } catch (e) {
+        // Silently handle load errors
+      }
+    },
+
+    // ----- Delete profile -----
+    confirmDelete(profile) {
+      this.deleteConfirm = profile;
+    },
+
+    async executeDelete() {
+      if (!this.deleteConfirm) return;
+      const id = this.deleteConfirm.id;
+      this.deleteConfirm = null;
+
+      try {
+        const resp = await fetch(`/index/profiles/${id}`, { method: 'DELETE' });
+        if (resp.ok) {
+          this.profiles = this.profiles.filter(p => p.id !== id);
+        } else {
+          const err = await resp.json();
+          this.error = err.detail || 'Profil konnte nicht geloescht werden.';
+        }
+      } catch (e) {
+        this.error = 'Netzwerkfehler beim Loeschen.';
+      }
+    },
+
+    // ----- YAML export -----
+    async exportYaml() {
+      try {
+        const resp = await fetch('/index/export-yaml');
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.error = err.detail || 'YAML-Export fehlgeschlagen.';
+          return;
+        }
+
+        // Trigger download
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'structure_rules.yaml';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        this.error = 'YAML-Export fehlgeschlagen: ' + e.message;
+      }
+    },
+
+    // ----- Helpers -----
+    shortenPath(fullPath) {
+      if (!fullPath) return '';
+      const parts = fullPath.split('/');
+      if (parts.length <= 4) return fullPath;
+      return '.../' + parts.slice(-3).join('/');
+    },
+
+    formatDate(isoStr) {
+      if (!isoStr) return '--';
+      try {
+        const d = new Date(isoStr);
+        return d.toLocaleDateString('de-DE', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+        }) + ' ' + d.toLocaleTimeString('de-DE', {
+          hour: '2-digit', minute: '2-digit',
+        });
+      } catch {
+        return isoStr;
+      }
+    },
+  };
+}
+</script>
+
 {% endblock %}

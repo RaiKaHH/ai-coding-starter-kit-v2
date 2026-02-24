@@ -4,11 +4,15 @@ Start: uvicorn main:app --reload --port 8000
 """
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from api import scan, move, rename, index, triage, ai_gateway, history, deep_sort
 from utils.db import init_db, cleanup_old_scans
+
+# Load .env file (API keys etc.) before anything else
+load_dotenv()
 
 
 @asynccontextmanager
@@ -37,7 +41,7 @@ async def security_headers(request: Request, call_next):
     # 'unsafe-inline' is required for Alpine.js inline directives (x-data, x-on…)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com; "
+        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "
         "img-src 'self' data:; "
         "font-src 'self';"

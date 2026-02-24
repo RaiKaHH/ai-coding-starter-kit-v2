@@ -1,8 +1,8 @@
 # PROJ-4: Semantischer Struktur-Lerner & Regel-Generator
 
-## Status: Geplant
+## Status: Fertig
 **Erstellt:** 2026-02-23
-**Zuletzt aktualisiert:** 2026-02-23
+**Zuletzt aktualisiert:** 2026-02-24
 
 ## Abhängigkeiten
 - Benötigt: PROJ-1 (Verzeichnis-Scanner) – für das schnelle Einlesen.
@@ -46,18 +46,154 @@
 <!-- Folgende Abschnitte werden von nachfolgenden Skills ergänzt -->
 
 ## Tech Design (Solution Architect)
-### Module
-- `api/index.py` – routes: POST /index/start, GET /index/status, GET /index/profiles, GET /index/export-yaml
-- `core/lerner.py` – Ordner-Aggregation (collections.Counter), AI-Profiling via ai_service.py, YAML-Export (PyYAML)
-- `models/index.py` – IndexRequest, FolderProfile, IndexStatus, YamlExportResponse
 
-### Datenbank
-- Tabelle `folder_profiles`: folder_path (UNIQUE), primary_extension, ai_description, keywords (JSON), file_count, indexed_at
-- YAML-Export liest folder_profiles und generiert structure_rules.yaml für PROJ-2
+### Komponenten-Struktur (UI — `templates/index.html`)
 
-### Sampling
-- Max 50 Dateinamen pro Ordner an LLM (Token-Limit-Schutz)
-- asyncio.Queue mit max 2-3 gleichzeitigen AI-Calls
+```
+/index  →  "Indexer – Ordner lernen"
+│
+├── [Abschnitt 1: Trainings-Ordner wählen]
+│   ├── Ordnerpfad-Eingabe (Texteingabe)
+│   ├── "Ordner auswählen"-Button  (öffnet macOS Finder-Dialog)
+│   └── "Indexierung starten"-Button  (primär, löst POST /index/start aus)
+│
+├── [Abschnitt 2: Fortschritts-Anzeige]  (x-show: indexing === true)
+│   ├── Scan-Pulse-Animation  (wie in PROJ-1 / PROJ-3)
+│   ├── Fortschrittsbalken  (processed_count / total_count)
+│   └── Status-Text  "Analysiere Ordner 12 / 47…"
+│
+├── [Abschnitt 3: Gelernte Ordner-Profile]  (x-show: profiles.length > 0)
+│   ├── Abschnitt-Header + Anzahl-Badge
+│   ├── Profil-Karten-Grid  (2–3 Spalten, x-for: profile in profiles)
+│   │   └── [Ordner-Karte]
+│   │       ├── Ordnerpfad  (fett, abgekürzt mit title-Tooltip)
+│   │       ├── KI-Beschreibung  (kursiv, grau)
+│   │       ├── Keywords  (Badge-Tags, blau)
+│   │       ├── Metadaten-Zeile  (Dateianzahl · Haupt-Extension · Datum)
+│   │       └── "Löschen"-Button  (Papierkorb-Icon, Bestätigungs-Dialog)
+│   │
+│   └── Aktions-Leiste (unten)
+│       └── "Regeln für PROJ-2 generieren"-Button  (lädt structure_rules.yaml herunter)
+│
+└── [Leer-Zustand]  (x-show: profiles.length === 0 && !indexing)
+    └── Erklärungstext + Illustration  "Kein Wissen vorhanden. Wähle einen Muster-Ordner..."
+```
+
+### Daten-Modell
+
+**SQLite-Tabelle `folder_profiles`** (wird beim App-Start via `init_db()` angelegt)
+
+| Spalte | Typ | Beschreibung |
+|---|---|---|
+| `id` | INTEGER PK | Auto-Increment |
+| `folder_path` | TEXT UNIQUE | Absoluter Pfad des Unterordners |
+| `primary_extension` | TEXT \| NULL | Häufigste Dateiendung (z.B. `.pdf`) |
+| `ai_description` | TEXT \| NULL | Ein-Satz-Zusammenfassung vom LLM; NULL im Offline-Modus |
+| `keywords` | TEXT | JSON-Array, z.B. `["steuer", "elster", "finanzamt"]` |
+| `file_count` | INTEGER | Anzahl Dateien in diesem Unterordner |
+| `indexed_at` | TEXT | ISO-8601-Zeitstempel der letzten Indexierung |
+
+`UNIQUE` auf `folder_path`: Re-Indexierung desselben Ordners überschreibt den alten Eintrag (INSERT OR REPLACE).
+
+**In-Memory-Status (nur während Laufzeit, kein DB-Eintrag)**
+
+| Feld | Beschreibung |
+|---|---|
+| `status` | `running \| completed \| failed` |
+| `processed_count` | Bisher fertig analysierte Unterordner |
+| `total_count` | Gesamtzahl zu analysierender Unterordner |
+
+**LLM-Antwort-Schema (erzwungenes JSON via Pydantic)**
+
+```
+AIFolderProfile:
+  zweck:             string   – z.B. "Steuerdokumente 2023"
+  keywords:          list[str] – max. 5 Schlüsselwörter
+  empfohlene_regel:  string   – z.B. "*.pdf" oder "RE-*.pdf"
+```
+
+**YAML-Export-Beispiel** (generiert für PROJ-2)
+
+```yaml
+rules:
+  - name: "Steuerdokumente"
+    target: "/Archiv/Steuer/2023"
+    match:
+      extensions: [".pdf"]
+      keywords: ["steuer", "elster", "finanzamt"]
+  - name: "Telekom-Rechnungen"
+    target: "/Rechnungen/Telekom"
+    match:
+      extensions: [".pdf"]
+      keywords: ["telekom", "rechnung"]
+```
+
+### Modul-Übersicht
+
+**`api/index.py`** – HTTP-Routen
+
+| Route | Methode | Funktion |
+|---|---|---|
+| `/index/` | GET | Rendert `templates/index.html` |
+| `/index/start` | POST | Startet Hintergrund-Task; gibt sofort `IndexStatus` zurück |
+| `/index/status` | GET | Short-Polling alle 2 s (Alpine.js) → `IndexStatus` |
+| `/index/profiles` | GET | Alle gespeicherten Profile → `list[FolderProfile]` |
+| `/index/profiles/{id}` | DELETE | Entfernt Eintrag aus DB |
+| `/index/export-yaml` | GET | Gibt YAML als Plaintext zurück (Browser-Download) |
+
+**`core/lerner.py`** – Business-Logik
+
+Ablauf des BackgroundTask `scan_and_profile(folder_path)`:
+
+```
+1. Alle Unterordner rekursiv einlesen  (pathlib.Path.rglob)
+2. total_count setzen  (für Fortschritts-Anzeige)
+3. Pro Unterordner:
+   a. collections.Counter für Dateiendungen + n-Gramme in Dateinamen
+   b. Leer-Ordner überspringen
+   c. Sample: max. 50 zufällige Dateinamen auswählen  (random.sample)
+   d. ai_service.ask_json(prompt, AIFolderProfile) aufrufen
+      → Concurrency-Limit (Semaphore 3) wird zentral von PROJ-6 verwaltet
+   e. Offline-Fallback: AIServiceError → nur Statistiken speichern, kein ai_description
+   f. Chaos-Ordner-Erkennung: >3 verschiedene Extensions → Keywords = ["gemischt"]
+   g. INSERT OR REPLACE INTO folder_profiles …
+   h. processed_count += 1
+4. Status auf "completed" setzen
+```
+
+`generate_yaml_from_profiles()` – liest alle Profile aus DB → baut YAML-String mit `PyYAML`
+
+**`models/index.py`** – Pydantic-Modelle (bereits angelegt)
+
+| Modell | Verwendung |
+|---|---|
+| `IndexRequest` | POST /start Eingabe (folder_path als SafePath) |
+| `IndexStatus` | Polling-Antwort (status, processed_count, total_count) |
+| `FolderProfile` | Einzelnes Profil aus der DB |
+| `YamlExportResponse` | YAML-Inhalt + vorgeschlagener Dateiname |
+| `AIFolderProfile` (neu) | Pydantic-Modell für strukturierten LLM-Output |
+
+### Tech-Entscheidungen
+
+| Entscheidung | Begründung |
+|---|---|
+| `collections.Counter` für Statistiken | Extrem schnell, keine Abhängigkeiten, ideal für Häufigkeitsanalysen |
+| Max. 50 Dateinamen-Sample | Verhindert Token-Limit-Überschreitung; repräsentatives Bild reicht für Profiling |
+| Concurrency via `_semaphore` in `ai_service.py` (PROJ-6) | Zentrales Rate-Limiting, kein doppelter Code in diesem Modul |
+| Short-Polling alle 2 s statt WebSocket | Konsistent mit PROJ-1 und PROJ-3; kein Infrastruktur-Overhead |
+| Offline-Fallback (nur Statistiken) | Ordner werden nie ignoriert; Tool ist auch ohne KI nützlich |
+| `folder_path UNIQUE` + INSERT OR REPLACE | Re-Indexierung überschreibt alten Eintrag, keine Duplikate |
+| YAML-Export via `PyYAML` | Direkte PROJ-2-Kompatibilität ohne Dateiformat-Konvertierung |
+| Keine Dateiinhalte ans LLM | Datenschutz: nur Datei*namen* werden analysiert, keine Inhalte |
+
+### Abhängigkeiten / Pakete
+
+| Paket | Zweck | Neu? |
+|---|---|---|
+| `PyYAML` | YAML-Generierung für PROJ-2-Export | Nein (via PROJ-2) |
+| `aiosqlite` | Async SQLite für `folder_profiles` | Nein (vorhanden) |
+| `httpx` | HTTP-Client für AI-Calls (via ai_service.py) | Nein (vorhanden) |
+| `pathlib`, `collections`, `random` | Standard-Library – Scan, Counter, Sampling | Nein |
 
 ## QA Testergebnisse
 _Wird durch /qa ergänzt_
