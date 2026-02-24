@@ -30,6 +30,14 @@ def validate_safe_path(value: str) -> Path:
     if not value or not value.strip():
         raise ValueError("Pfad darf nicht leer sein.")
 
+    # BUG-8: reject relative paths *before* resolve() silently maps them to CWD
+    stripped = value.strip()
+    if not stripped.startswith("/") and not stripped.startswith("~"):
+        raise ValueError(
+            f"Pfad muss absolut sein (mit / beginnen) oder ~ nutzen. "
+            f"Relativer Pfad nicht erlaubt: {value!r}"
+        )
+
     p = Path(value).expanduser().resolve()
 
     # Must be absolute after resolution

@@ -80,6 +80,7 @@ class ScanStatus(BaseModel):
     scan_id: str
     status: Literal["running", "completed", "failed"]
     file_count: int
+    total_count: int = 0  # BUG-2: total files found by walk; 0 until walk completes
     source_path: str
     created_at: str
 

@@ -150,6 +150,15 @@ async def init_db() -> None:
             )
         """)
 
+        # Schema migrations (idempotent – run on every startup)
+        # BUG-2: add total_count so UI can show real progress percentage
+        try:
+            await db.execute(
+                "ALTER TABLE scans ADD COLUMN total_count INTEGER NOT NULL DEFAULT 0"
+            )
+        except Exception:
+            pass  # column already exists
+
         await db.commit()
 
 

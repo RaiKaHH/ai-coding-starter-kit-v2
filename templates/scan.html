@@ -171,7 +171,19 @@
       </div>
 
       <span class="text-sm text-gray-500 tabular-nums">
-        <span x-text="fileCount.toLocaleString('de-DE')"></span> Dateien gefunden
+        <!-- BUG-2: show real X / Y progress once total is known -->
+        <template x-if="scanning && totalCount === 0">
+          <span class="italic">Verzeichnis wird durchsucht…</span>
+        </template>
+        <template x-if="scanning && totalCount > 0">
+          <span>
+            <span x-text="fileCount.toLocaleString('de-DE')"></span>
+            / <span x-text="totalCount.toLocaleString('de-DE')"></span> Dateien
+          </span>
+        </template>
+        <template x-if="!scanning">
+          <span><span x-text="fileCount.toLocaleString('de-DE')"></span> Dateien gefunden</span>
+        </template>
       </span>
     </div>
 
@@ -184,7 +196,7 @@
           'bg-green-500': status === 'completed',
           'bg-red-500': status === 'failed'
         }"
-        :style="'width: ' + (scanning ? Math.min(95, Math.max(5, fileCount > 0 ? 50 : 15)) + '%' : '100%')"
+        :style="!scanning ? 'width: 100%' : (totalCount > 0 ? 'width: ' + Math.min(99, Math.round(fileCount / totalCount * 100)) + '%' : 'width: 20%')"
       ></div>
     </div>
 
@@ -570,6 +582,7 @@ function scanApp() {
     scanning: false,
     status: null,  // 'running' | 'completed' | 'failed'
     fileCount: 0,
+    totalCount: 0,  // BUG-2: total files discovered by walk
     error: null,
     pollInterval: null,
 
@@ -612,6 +625,7 @@ function scanApp() {
       this.scanning = true;
       this.status = 'running';
       this.fileCount = 0;
+      this.totalCount = 0;
       this.files = [];
       this.scanId = null;
       this.currentPage = 1;
@@ -653,6 +667,7 @@ function scanApp() {
         const resp = await fetch(`/scan/${this.scanId}/status`);
         const data = await resp.json();
         this.fileCount = data.file_count;
+        this.totalCount = data.total_count || 0;
         this.status = data.status;
 
         if (data.status === 'completed' || data.status === 'failed') {

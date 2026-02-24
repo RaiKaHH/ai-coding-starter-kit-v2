@@ -184,6 +184,7 @@ async def start_scan(body: ScanRequest, background_tasks: BackgroundTasks) -> Sc
         scan_id=scan_id,
         status="running",
         file_count=0,
+        total_count=0,
         source_path=str(source),
         created_at=now,
     )
@@ -199,7 +200,7 @@ async def get_scan_status(scan_id: str) -> ScanStatus:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT scan_id, status, file_count, source_path, created_at "
+            "SELECT scan_id, status, file_count, total_count, source_path, created_at "
             "FROM scans WHERE scan_id = ?",
             (scan_id,),
         )
@@ -210,6 +211,7 @@ async def get_scan_status(scan_id: str) -> ScanStatus:
             scan_id=row["scan_id"],
             status=row["status"],
             file_count=row["file_count"],
+            total_count=row["total_count"] or 0,
             source_path=row["source_path"],
             created_at=row["created_at"],
         )

@@ -91,12 +91,26 @@ def _get_creation_time(stat_result: os.stat_result) -> float:
 # Directory scanning                                                           #
 # --------------------------------------------------------------------------- #
 
-async def collect_file_info(entry: Path) -> FileInfo:
+async def collect_file_info(
+    entry: Path,
+    relative_to: Path | None = None,
+) -> FileInfo:
     """
     Gather metadata for a single file/symlink.
     Runs stat and MIME detection in a thread to avoid blocking the event loop.
+
+    If relative_to is provided the stored path is relative to that root (BUG-1).
     """
     is_symlink = entry.is_symlink()
+
+    # BUG-1: store path relative to the scanned root, not the absolute path
+    if relative_to is not None:
+        try:
+            display_path = str(entry.relative_to(relative_to))
+        except ValueError:
+            display_path = str(entry)  # fallback: absolute
+    else:
+        display_path = str(entry)
 
     try:
         # Use lstat for symlinks so we don't follow them
@@ -104,7 +118,7 @@ async def collect_file_info(entry: Path) -> FileInfo:
         mime = await asyncio.to_thread(_detect_mime, entry) if not is_symlink else None
         return FileInfo(
             name=entry.name,
-            path=str(entry),
+            path=display_path,
             size_bytes=stat.st_size,
             mime_type=mime,
             created_at=_ts_to_iso(_get_creation_time(stat)),
@@ -115,14 +129,14 @@ async def collect_file_info(entry: Path) -> FileInfo:
     except PermissionError:
         return FileInfo(
             name=entry.name,
-            path=str(entry),
+            path=display_path,
             access_denied=True,
             is_symlink=is_symlink,
         )
     except OSError:
         return FileInfo(
             name=entry.name,
-            path=str(entry),
+            path=display_path,
             access_denied=True,
             is_symlink=is_symlink,
         )
@@ -171,6 +185,13 @@ async def scan_directory(
         all_paths = await asyncio.to_thread(_walk_directory, source_path, recursive)
         total = len(all_paths)
 
+        # BUG-2: persist total_count immediately so polling UI can show real %
+        await db.execute(
+            "UPDATE scans SET total_count = ? WHERE scan_id = ?",
+            (total, scan_id),
+        )
+        await db.commit()
+
         # Step 2+3: process in batches of 200 for good DB throughput
         BATCH_SIZE = 200
         processed = 0
@@ -178,9 +199,9 @@ async def scan_directory(
         for batch_start in range(0, total, BATCH_SIZE):
             batch_paths = all_paths[batch_start:batch_start + BATCH_SIZE]
 
-            # Gather metadata concurrently within batch
+            # Gather metadata concurrently within batch (BUG-1: pass root for relative paths)
             infos = await asyncio.gather(
-                *(collect_file_info(p) for p in batch_paths)
+                *(collect_file_info(p, relative_to=source_path) for p in batch_paths)
             )
 
             # Insert batch into DB
