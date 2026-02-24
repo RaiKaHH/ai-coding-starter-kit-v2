@@ -13,11 +13,11 @@
 | ID | Feature | Status | Spec | Erstellt |
 |----|---------|--------|------|---------|
 | PROJ-1 | Verzeichnis-Scanner | Fertig | [PROJ-1-verzeichnis-scanner.md](PROJ-1-verzeichnis-scanner.md) | 2026-02-23 |
-| PROJ-2 | Struktur-basierter Datei-Verschieber | Geplant | [PROJ-2-struktur-verschieber.md](PROJ-2-struktur-verschieber.md) | 2026-02-23 |
+| PROJ-2 | Struktur-basierter Datei-Verschieber | Fertig | [PROJ-2-struktur-verschieber.md](PROJ-2-struktur-verschieber.md) | 2026-02-23 |
 | PROJ-3 | AI-gestützter Datei-Umbenenner | Geplant | [PROJ-3-ai-datei-umbenenner.md](PROJ-3-ai-datei-umbenenner.md) | 2026-02-23 |
 | PROJ-4 | Semantischer Struktur-Lerner | Geplant | [PROJ-4-semantischer-lerner.md](PROJ-4-semantischer-lerner.md) | 2026-02-23 |
 | PROJ-5 | Smart Inbox Triage | Geplant | [PROJ-5-smart-inbox-triage.md](PROJ-5-smart-inbox-triage.md) | 2026-02-23 |
-| PROJ-6 | KI-Integrations-Schicht (Gateway) | Geplant | [PROJ-6-ki-gateway.md](PROJ-6-ki-gateway.md) | 2026-02-23 |
+| PROJ-6 | KI-Integrations-Schicht (Gateway) | Fertig | [PROJ-6-ki-gateway.md](PROJ-6-ki-gateway.md) | 2026-02-23 |
 | PROJ-8 | Deep-AI Smart Sorting | Geplant | [PROJ-8-deep-ai-sorting.md](PROJ-8-deep-ai-sorting.md) | 2026-02-23 |
 | PROJ-9 | Undo / Rollback für Verschiebe- und Umbenenn-Aktionen | Geplant | [PROJ-9-undo-rollback.md](PROJ-9-undo-rollback.md) | 2026-02-23 |
 

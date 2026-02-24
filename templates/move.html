@@ -1,6 +1,642 @@
 {% extends "base.html" %}
 {% block title %}{{ page_title }}{% endblock %}
 {% block content %}
-<!-- TODO: implement in /frontend phase -->
-<h1 class="text-2xl font-bold">{{ page_title }}</h1>
+
+<div x-data="moveApp()" x-init="init()">
+
+  <!-- Page Header -->
+  <div class="mb-6">
+    <h1 class="text-2xl sm:text-3xl font-bold text-gray-900">Dateien verschieben</h1>
+    <p class="mt-1 text-sm text-gray-500">
+      Verschiebe Dateien automatisch anhand von YAML-Regeln oder der Struktur eines Muster-Ordners.
+    </p>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- Mode Tabs                                                           -->
+  <!-- ================================================================== -->
+  <div class="mb-6">
+    <nav class="flex space-x-1 bg-gray-100 rounded-lg p-1" aria-label="Modus">
+      <button
+        @click="mode = 'rules'"
+        :class="mode === 'rules'
+          ? 'bg-white text-brand-700 shadow-sm'
+          : 'text-gray-500 hover:text-gray-700'"
+        class="flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all"
+      >
+        Nach YAML-Regeln
+      </button>
+      <button
+        @click="mode = 'pattern'"
+        :class="mode === 'pattern'
+          ? 'bg-white text-brand-700 shadow-sm'
+          : 'text-gray-500 hover:text-gray-700'"
+        class="flex-1 py-2 px-4 text-sm font-medium rounded-md transition-all"
+      >
+        Nach Muster-Ordner
+      </button>
+    </nav>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- Configuration Card                                                  -->
+  <!-- ================================================================== -->
+  <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-6 mb-6">
+    <div class="flex items-center gap-2 mb-4">
+      <svg class="w-5 h-5 text-brand-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+      </svg>
+      <h2 class="text-lg font-semibold text-gray-900">Konfiguration</h2>
+    </div>
+
+    <!-- Scan Selection -->
+    <div class="mb-4">
+      <label for="scan-select" class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
+        Scan-Datensatz
+      </label>
+      <div x-show="loadingScans" class="text-sm text-gray-400 py-2">Scans werden geladen...</div>
+      <select
+        x-show="!loadingScans"
+        id="scan-select"
+        x-model="selectedScanId"
+        :disabled="executing"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm
+               focus:ring-2 focus:ring-brand-500 focus:border-brand-500
+               bg-white disabled:bg-gray-100 disabled:cursor-not-allowed transition-colors"
+      >
+        <option value="">-- Scan auswaehlen --</option>
+        <template x-for="scan in scans" :key="scan.scan_id">
+          <option :value="scan.scan_id" x-text="scan.source_path + ' (' + scan.file_count + ' Dateien, ' + formatDate(scan.created_at) + ')'"></option>
+        </template>
+      </select>
+      <p x-show="!loadingScans && scans.length === 0" class="text-sm text-gray-400 mt-1">
+        Kein abgeschlossener Scan verfuegbar. Bitte fuehre zuerst einen <a href="/scan/" class="text-brand-600 hover:underline">Scan</a> durch.
+      </p>
+    </div>
+
+    <!-- Tab 1: YAML Rules Path -->
+    <div x-show="mode === 'rules'" class="mb-4">
+      <label for="rules-path" class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
+        Pfad zur YAML-Regeldatei
+      </label>
+      <input
+        id="rules-path"
+        type="text"
+        x-model="rulesPath"
+        placeholder="/Users/dein-name/structure_rules.yaml"
+        :disabled="executing"
+        class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm
+               focus:ring-2 focus:ring-brand-500 focus:border-brand-500
+               disabled:bg-gray-100 disabled:cursor-not-allowed
+               placeholder:text-gray-400 transition-colors"
+      />
+      <!-- YAML Format Hint -->
+      <details class="mt-2">
+        <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-600">YAML-Format anzeigen</summary>
+        <pre class="mt-2 bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-600 overflow-x-auto">rules:
+  - name: "PDFs nach Dokumente"
+    target: "~/Dokumente/PDFs"
+    match:
+      extensions: [".pdf"]
+
+  - name: "Screenshots"
+    target: "~/Bilder/Screenshots"
+    match:
+      name_pattern: "Screenshot*"
+
+  - name: "Videos"
+    target: "~/Videos"
+    match:
+      extensions: [".mp4", ".mov", ".mkv"]
+
+unmatched: "skip"   # oder 'move_to: ~/Unsortiert'</pre>
+      </details>
+    </div>
+
+    <!-- Tab 2: Pattern Folder Path -->
+    <div x-show="mode === 'pattern'" class="mb-4">
+      <label for="pattern-folder" class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
+        Pfad zum Muster-Ordner
+      </label>
+      <input
+        id="pattern-folder"
+        type="text"
+        x-model="patternFolder"
+        placeholder="/Users/dein-name/Dokumente (gut sortierter Ordner)"
+        :disabled="executing"
+        class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm
+               focus:ring-2 focus:ring-brand-500 focus:border-brand-500
+               disabled:bg-gray-100 disabled:cursor-not-allowed
+               placeholder:text-gray-400 transition-colors"
+      />
+      <p class="text-xs text-gray-400 mt-1">
+        Die Unterordner-Struktur und darin enthaltenen Dateitypen werden als Regeln abgeleitet.
+      </p>
+    </div>
+
+    <!-- Generate Preview Button -->
+    <div class="flex items-center gap-3 mt-4">
+      <button
+        @click="generatePreview()"
+        :disabled="!canGeneratePreview || generatingPreview || executing"
+        class="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 active:bg-brand-800
+               text-white px-6 py-2.5 rounded-lg text-sm font-medium
+               disabled:opacity-50 disabled:cursor-not-allowed
+               transition-colors shadow-sm"
+      >
+        <template x-if="!generatingPreview">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </template>
+        <template x-if="generatingPreview">
+          <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </template>
+        <span x-text="generatingPreview ? 'Vorschau wird erstellt...' : 'Vorschau generieren'"></span>
+      </button>
+    </div>
+
+    <!-- Error Message -->
+    <div
+      x-show="error"
+      x-cloak
+      x-transition
+      class="mt-4 flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm"
+      role="alert"
+    >
+      <svg class="w-5 h-5 shrink-0 mt-0.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+      </svg>
+      <span x-text="error"></span>
+      <button @click="error = null" class="ml-auto text-red-400 hover:text-red-600 shrink-0">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Preview Table                                                       -->
+  <!-- ================================================================== -->
+  <section
+    x-show="previewItems.length > 0 || unmatchedCount > 0"
+    x-cloak
+    x-transition
+    class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6"
+    aria-label="Vorschau"
+  >
+    <!-- Header -->
+    <div class="px-5 sm:px-6 py-4 border-b border-gray-100">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <svg class="w-5 h-5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
+          </svg>
+          <h2 class="text-lg font-semibold text-gray-900">Vorschau</h2>
+        </div>
+        <div class="text-sm text-gray-500">
+          <span class="font-medium text-gray-700" x-text="selectedCount"></span>
+          von
+          <span x-text="previewItems.length"></span>
+          Dateien ausgewaehlt
+          <template x-if="unmatchedCount > 0">
+            <span class="text-gray-400">
+              | <span x-text="unmatchedCount"></span> nicht zugeordnet
+            </span>
+          </template>
+        </div>
+      </div>
+
+      <!-- Select All / Deselect All -->
+      <div class="flex items-center gap-3 mt-3">
+        <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            :checked="allSelected"
+            @change="toggleSelectAll($event.target.checked)"
+            class="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+          />
+          Alle auswaehlen / abwaehlen
+        </label>
+      </div>
+    </div>
+
+    <!-- Desktop Table -->
+    <div class="overflow-x-auto custom-scrollbar hidden md:block">
+      <table class="w-full text-sm" role="table">
+        <thead class="bg-gray-50 border-b border-gray-100">
+          <tr>
+            <th class="text-center px-3 py-3 w-10" scope="col">
+              <span class="sr-only">Auswahl</span>
+            </th>
+            <th class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider" scope="col">Dateiname</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider" scope="col">Aktueller Pfad</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider" scope="col">Neuer Pfad</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider" scope="col">Regel</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          <template x-for="item in previewItems" :key="item.id">
+            <tr
+              class="transition-colors"
+              :class="selectedIds.has(item.id) ? 'bg-brand-50/30 hover:bg-brand-50/50' : 'hover:bg-gray-50/50 opacity-50'"
+            >
+              <td class="text-center px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  :checked="selectedIds.has(item.id)"
+                  @change="toggleItem(item.id)"
+                  class="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                />
+              </td>
+              <td class="px-4 py-2.5">
+                <span class="font-medium text-gray-900 truncate max-w-[180px] block" x-text="item.file_name" :title="item.file_name"></span>
+              </td>
+              <td class="px-4 py-2.5">
+                <span class="text-gray-500 truncate max-w-[250px] block text-xs" x-text="item.source_path" :title="item.source_path"></span>
+              </td>
+              <td class="px-4 py-2.5">
+                <span class="text-green-700 truncate max-w-[250px] block text-xs font-medium" x-text="item.target_path" :title="item.target_path"></span>
+              </td>
+              <td class="px-4 py-2.5">
+                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-600" x-text="item.rule_matched"></span>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Mobile Card Layout -->
+    <div class="md:hidden divide-y divide-gray-100">
+      <template x-for="item in previewItems" :key="item.id">
+        <div
+          class="px-4 py-3 transition-colors"
+          :class="selectedIds.has(item.id) ? 'bg-brand-50/30' : 'opacity-50'"
+        >
+          <div class="flex items-start gap-3">
+            <input
+              type="checkbox"
+              :checked="selectedIds.has(item.id)"
+              @change="toggleItem(item.id)"
+              class="mt-1 rounded border-gray-300 text-brand-600 focus:ring-brand-500 shrink-0"
+            />
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-gray-900 truncate" x-text="item.file_name"></p>
+              <p class="text-xs text-gray-400 truncate mt-0.5" x-text="item.source_path"></p>
+              <p class="text-xs text-green-700 font-medium truncate mt-0.5" x-text="item.target_path"></p>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-gray-100 text-gray-600 mt-1" x-text="item.rule_matched"></span>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Footer: Execute Button -->
+    <div class="px-5 sm:px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+      <div class="text-sm text-gray-500">
+        <span class="font-medium text-gray-700" x-text="selectedCount"></span>
+        Dateien werden verschoben
+      </div>
+      <button
+        @click="executeMove()"
+        :disabled="selectedCount === 0 || executing"
+        class="flex items-center gap-2 bg-green-600 hover:bg-green-700 active:bg-green-800
+               text-white px-6 py-2.5 rounded-lg text-sm font-medium
+               disabled:opacity-50 disabled:cursor-not-allowed
+               transition-colors shadow-sm w-full sm:w-auto justify-center"
+      >
+        <template x-if="!executing">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+          </svg>
+        </template>
+        <template x-if="executing">
+          <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </template>
+        <span x-text="executing ? 'Wird verschoben...' : selectedCount + ' Dateien jetzt verschieben'"></span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Progress Section (during/after execution)                           -->
+  <!-- ================================================================== -->
+  <section
+    x-show="batchId && executing || batchDone"
+    x-cloak
+    x-transition
+    class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-6 mb-6"
+    aria-label="Fortschritt"
+  >
+    <div class="flex items-center gap-2 mb-3">
+      <template x-if="executing && !batchDone">
+        <span class="flex h-3 w-3 relative">
+          <span class="scan-pulse absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-3 w-3 bg-brand-500"></span>
+        </span>
+      </template>
+      <template x-if="batchDone && batchFailed === 0">
+        <svg class="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </template>
+      <template x-if="batchDone && batchFailed > 0">
+        <svg class="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+      </template>
+      <span class="text-sm font-medium">
+        <span x-show="!batchDone" class="text-brand-700">Dateien werden verschoben...</span>
+        <span x-show="batchDone && batchFailed === 0" class="text-green-700">Alle Dateien erfolgreich verschoben</span>
+        <span x-show="batchDone && batchFailed > 0" class="text-amber-700">Abgeschlossen mit Fehlern</span>
+      </span>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden mb-2">
+      <div
+        class="h-2 rounded-full transition-all duration-500 ease-out"
+        :class="{
+          'bg-brand-500': !batchDone,
+          'bg-green-500': batchDone && batchFailed === 0,
+          'bg-amber-500': batchDone && batchFailed > 0,
+        }"
+        :style="'width: ' + (batchTotal > 0 ? Math.round((batchMoved + batchFailed) / batchTotal * 100) : 0) + '%'"
+      ></div>
+    </div>
+
+    <!-- Counts -->
+    <div class="flex items-center gap-4 text-sm text-gray-500">
+      <span>
+        <span class="font-medium text-green-700" x-text="batchMoved"></span> verschoben
+      </span>
+      <span x-show="batchFailed > 0">
+        <span class="font-medium text-red-600" x-text="batchFailed"></span> fehlgeschlagen
+      </span>
+      <span class="text-gray-400">
+        von <span x-text="batchTotal"></span> gesamt
+      </span>
+    </div>
+
+    <!-- Error List -->
+    <div x-show="batchErrors.length > 0" x-cloak class="mt-4">
+      <h3 class="text-sm font-medium text-red-700 mb-2">Fehler:</h3>
+      <ul class="space-y-1">
+        <template x-for="(err, idx) in batchErrors" :key="idx">
+          <li class="text-xs text-red-600 bg-red-50 border border-red-100 rounded px-3 py-1.5" x-text="err"></li>
+        </template>
+      </ul>
+    </div>
+
+    <!-- Link to history -->
+    <div x-show="batchDone" x-cloak class="mt-4">
+      <a
+        href="/history/"
+        class="inline-flex items-center gap-2 text-sm text-brand-600 hover:text-brand-700 font-medium"
+      >
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        Zur Operationshistorie
+      </a>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Empty / Initial State                                               -->
+  <!-- ================================================================== -->
+  <section
+    x-show="previewItems.length === 0 && !generatingPreview && !executing && !batchDone"
+    class="bg-white rounded-xl shadow-sm border border-gray-200 border-dashed p-8 sm:p-12 text-center"
+  >
+    <svg class="mx-auto w-16 h-16 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+    </svg>
+    <h3 class="text-lg font-medium text-gray-700 mb-1">Bereit zum Verschieben</h3>
+    <p class="text-sm text-gray-500 max-w-md mx-auto">
+      Waehle einen abgeschlossenen Scan und konfiguriere deine Regeln,
+      um eine Vorschau der Dateiverschiebungen zu erhalten.
+    </p>
+  </section>
+
+</div>
+
+<!-- ================================================================== -->
+<!-- Alpine.js App Logic                                                 -->
+<!-- ================================================================== -->
+<script>
+function moveApp() {
+  return {
+    // Mode
+    mode: 'rules',
+
+    // Scan selection
+    scans: [],
+    loadingScans: true,
+    selectedScanId: '',
+
+    // Config inputs
+    rulesPath: '',
+    patternFolder: '',
+
+    // Preview state
+    generatingPreview: false,
+    previewItems: [],
+    unmatchedCount: 0,
+    batchId: null,
+    selectedIds: new Set(),
+    error: null,
+
+    // Execution state
+    executing: false,
+    batchDone: false,
+    batchTotal: 0,
+    batchMoved: 0,
+    batchFailed: 0,
+    batchErrors: [],
+    pollInterval: null,
+
+    get canGeneratePreview() {
+      if (!this.selectedScanId) return false;
+      if (this.mode === 'rules' && !this.rulesPath.trim()) return false;
+      if (this.mode === 'pattern' && !this.patternFolder.trim()) return false;
+      return true;
+    },
+
+    get selectedCount() {
+      return this.selectedIds.size;
+    },
+
+    get allSelected() {
+      return this.previewItems.length > 0 && this.selectedIds.size === this.previewItems.length;
+    },
+
+    async init() {
+      await this.loadScans();
+    },
+
+    async loadScans() {
+      this.loadingScans = true;
+      try {
+        const resp = await fetch('/move/scans');
+        if (resp.ok) {
+          this.scans = await resp.json();
+        }
+      } catch (e) {
+        // Silently fail, user can retry
+      } finally {
+        this.loadingScans = false;
+      }
+    },
+
+    async generatePreview() {
+      this.error = null;
+      this.generatingPreview = true;
+      this.previewItems = [];
+      this.unmatchedCount = 0;
+      this.batchId = null;
+      this.selectedIds = new Set();
+      this.batchDone = false;
+      this.batchErrors = [];
+
+      const url = this.mode === 'rules'
+        ? '/move/preview/by-rules'
+        : '/move/preview/by-pattern';
+
+      const payload = this.mode === 'rules'
+        ? { scan_id: this.selectedScanId, rules_path: this.rulesPath.trim() }
+        : { scan_id: this.selectedScanId, pattern_folder: this.patternFolder.trim() };
+
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.error = err.detail || 'Vorschau konnte nicht erstellt werden.';
+          return;
+        }
+
+        const data = await resp.json();
+        this.batchId = data.batch_id;
+        this.previewItems = data.items;
+        this.unmatchedCount = data.unmatched_count;
+
+        // Select all by default (opt-out model)
+        this.selectedIds = new Set(data.items.map(i => i.id));
+      } catch (e) {
+        this.error = 'Netzwerkfehler: ' + e.message;
+      } finally {
+        this.generatingPreview = false;
+      }
+    },
+
+    toggleItem(id) {
+      if (this.selectedIds.has(id)) {
+        this.selectedIds.delete(id);
+      } else {
+        this.selectedIds.add(id);
+      }
+      // Force Alpine reactivity
+      this.selectedIds = new Set(this.selectedIds);
+    },
+
+    toggleSelectAll(checked) {
+      if (checked) {
+        this.selectedIds = new Set(this.previewItems.map(i => i.id));
+      } else {
+        this.selectedIds = new Set();
+      }
+    },
+
+    async executeMove() {
+      if (!this.batchId || this.selectedCount === 0) return;
+
+      this.error = null;
+      this.executing = true;
+      this.batchDone = false;
+      this.batchTotal = this.selectedCount;
+      this.batchMoved = 0;
+      this.batchFailed = 0;
+      this.batchErrors = [];
+
+      try {
+        const resp = await fetch('/move/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            batch_id: this.batchId,
+            selected_ids: Array.from(this.selectedIds),
+          }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.error = err.detail || 'Verschieben konnte nicht gestartet werden.';
+          this.executing = false;
+          return;
+        }
+
+        // Start polling
+        this.pollInterval = setInterval(() => this.pollBatchStatus(), 1000);
+      } catch (e) {
+        this.error = 'Netzwerkfehler: ' + e.message;
+        this.executing = false;
+      }
+    },
+
+    async pollBatchStatus() {
+      if (!this.batchId) return;
+      try {
+        const resp = await fetch(`/move/batch/${this.batchId}/status`);
+        if (!resp.ok) return;
+
+        const data = await resp.json();
+        this.batchTotal = data.total;
+        this.batchMoved = data.moved;
+        this.batchFailed = data.failed;
+        this.batchErrors = data.errors || [];
+
+        if (data.done) {
+          clearInterval(this.pollInterval);
+          this.pollInterval = null;
+          this.executing = false;
+          this.batchDone = true;
+          // Clear preview since batch is consumed
+          this.previewItems = [];
+        }
+      } catch (e) {
+        // Silently retry
+      }
+    },
+
+    formatDate(isoStr) {
+      if (!isoStr) return '\u2014';
+      try {
+        const d = new Date(isoStr);
+        return d.toLocaleDateString('de-DE', {
+          day: '2-digit', month: '2-digit', year: 'numeric',
+        }) + ' ' + d.toLocaleTimeString('de-DE', {
+          hour: '2-digit', minute: '2-digit',
+        });
+      } catch {
+        return isoStr;
+      }
+    },
+  };
+}
+</script>
+
 {% endblock %}
