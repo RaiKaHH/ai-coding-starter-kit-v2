@@ -53,6 +53,16 @@ def get_index_status() -> IndexStatus:
     )
 
 
+def mark_status_running() -> None:
+    """BUG-1: Pre-emptively set status to 'running' before the background task starts.
+    Called synchronously in the route handler so the first polling response
+    already reflects the new state."""
+    _index_status["status"] = "running"
+    _index_status["processed_count"] = 0
+    _index_status["total_count"] = 0
+    _index_status["error"] = None
+
+
 # --------------------------------------------------------------------------- #
 # Subfolder statistics                                                         #
 # --------------------------------------------------------------------------- #
@@ -210,12 +220,16 @@ async def scan_and_profile(folder_path: Path) -> None:
     persist results to folder_profiles table.
 
     Updates _index_status in-place for polling.
+    Note: _index_status is already set to 'running' by mark_status_running()
+    before this task is queued (BUG-1 fix).
     """
-    _index_status["status"] = "running"
     _index_status["processed_count"] = 0
     _index_status["total_count"] = 0
     _index_status["error"] = None
 
+    # BUG-3 fix: open a single DB connection for the entire scan instead of
+    # opening/closing one per subfolder (avoids thousands of connection cycles).
+    db = await get_db()
     try:
         # Step 1: Collect all subfolders (including root)
         subfolders: list[Path] = [folder_path]
@@ -233,10 +247,10 @@ async def scan_and_profile(folder_path: Path) -> None:
             len(subfolders),
         )
 
-        # Step 2: Process each subfolder
+        # Step 2: Process each subfolder, reusing the shared DB connection
         for subfolder in subfolders:
             try:
-                await _process_subfolder(subfolder)
+                await _process_subfolder(subfolder, db)
             except Exception as exc:
                 logger.error(
                     "Fehler beim Verarbeiten von %s: %s",
@@ -253,10 +267,16 @@ async def scan_and_profile(folder_path: Path) -> None:
         _index_status["status"] = "failed"
         _index_status["error"] = str(exc)
         logger.error("Indexierung fehlgeschlagen: %s – %s", folder_path, exc)
+    finally:
+        await db.close()
 
 
-async def _process_subfolder(subfolder: Path) -> None:
-    """Process a single subfolder: collect stats, profile, persist."""
+async def _process_subfolder(subfolder: Path, db) -> None:
+    """Process a single subfolder: collect stats, profile, persist.
+
+    Accepts a shared DB connection (BUG-3 fix: connection is managed by the
+    caller scan_and_profile to avoid per-subfolder open/close overhead).
+    """
     stats = _collect_subfolder_stats(subfolder)
 
     # Skip empty folders
@@ -290,29 +310,25 @@ async def _process_subfolder(subfolder: Path) -> None:
             keywords = _heuristic_keywords(filenames, ext_counter)
             ai_description = None
 
-    # Persist to database
+    # Persist to database using the shared connection
     now = datetime.now(tz=timezone.utc).isoformat()
     keywords_json = json.dumps(keywords, ensure_ascii=False)
 
-    db = await get_db()
-    try:
-        await db.execute(
-            """
-            INSERT INTO folder_profiles
-                (folder_path, primary_extension, ai_description, keywords, file_count, indexed_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(folder_path) DO UPDATE SET
-                primary_extension = excluded.primary_extension,
-                ai_description    = excluded.ai_description,
-                keywords          = excluded.keywords,
-                file_count        = excluded.file_count,
-                indexed_at        = excluded.indexed_at
-            """,
-            (folder_str, primary_ext, ai_description, keywords_json, file_count, now),
-        )
-        await db.commit()
-    finally:
-        await db.close()
+    await db.execute(
+        """
+        INSERT INTO folder_profiles
+            (folder_path, primary_extension, ai_description, keywords, file_count, indexed_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(folder_path) DO UPDATE SET
+            primary_extension = excluded.primary_extension,
+            ai_description    = excluded.ai_description,
+            keywords          = excluded.keywords,
+            file_count        = excluded.file_count,
+            indexed_at        = excluded.indexed_at
+        """,
+        (folder_str, primary_ext, ai_description, keywords_json, file_count, now),
+    )
+    await db.commit()
 
 
 # --------------------------------------------------------------------------- #

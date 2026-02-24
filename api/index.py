@@ -25,6 +25,7 @@ from core.lerner import (
     generate_yaml_from_profiles,
     get_all_profiles,
     get_index_status,
+    mark_status_running,
     scan_and_profile,
 )
 from models.index import FolderProfile, IndexRequest, IndexStatus, YamlExportResponse
@@ -129,17 +130,10 @@ async def start_indexing(
     """
     _check_rate_limit()
 
-    # Check if indexing is already running
-    current = get_index_status()
-    if current.status == "running":
-        raise HTTPException(
-            status_code=409,
-            detail="Eine Indexierung laeuft bereits. Bitte warten.",
-        )
-
     source = Path(body.folder_path) if isinstance(body.folder_path, str) else body.folder_path
 
-    # Validate the directory
+    # BUG-2 fix: validate path BEFORE checking running state so that invalid
+    # paths always get a 400/403, even when another indexing run is in progress.
     if not source.exists():
         raise HTTPException(
             status_code=400,
@@ -158,7 +152,17 @@ async def start_indexing(
             detail=f"Keine Leseberechtigung fuer: {source}",
         )
 
-    # Launch background task
+    # Check if indexing is already running (after path validation)
+    current = get_index_status()
+    if current.status == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="Eine Indexierung laeuft bereits. Bitte warten.",
+        )
+
+    # BUG-1 fix: set status to 'running' synchronously before queuing the task
+    # so the very first poll already returns the correct state.
+    mark_status_running()
     background_tasks.add_task(scan_and_profile, source)
 
     return get_index_status()
