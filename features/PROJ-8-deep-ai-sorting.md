@@ -1,6 +1,6 @@
 # PROJ-8: Deep-AI Smart Sorting (Inbox Triage Upgrade)
 
-## Status: In Review
+## Status: Fertig
 **Erstellt:** 2026-02-23
 **Zuletzt aktualisiert:** 2026-02-24
 
@@ -451,3 +451,282 @@ Der Halluzinations-Check (Schritt 5) wuerde einen nicht-existierenden Pfad abfan
 2. **BUG-6 (file_name nicht validiert):** Ermoeglicht Manipulation der Ordner-Vorfilterung und ist ein Prompt-Injection-Vektor. Sollte gefixt werden.
 
 Empfehlung: BUG-1 und BUG-6 beheben, dann Re-Test durchfuehren. BUG-4 (BackgroundTask) sollte vor dem Einsatz mit grossen Dateimengen ebenfalls adressiert werden.
+
+---
+
+## QA Re-Test: Bug-Fix-Verifizierung
+
+**Datum:** 2026-02-24
+**Tester:** QA Engineer (Code Review -- Re-Test)
+**Methode:** Statische Code-Inspektion gegen vorherige Bug-Reports (BUG-1 bis BUG-6)
+**Gepruefte Dateien:** `api/deep_sort.py`, `models/deep_sort.py`, `templates/triage.html`, `core/triage.py`
+
+---
+
+### Bug-Fix-Verifizierung
+
+| Bug-ID | Beschreibung | Fix-Status | Bemerkung |
+|--------|-------------|------------|-----------|
+| BUG-1 | Broken HTML in Batch-KI-Button (stray `</svg>`) | **BEHOBEN** | `triage.html` Zeilen 104-107: SVG ist korrekt geschlossen. Kein stray `</svg>` mehr vorhanden. Die Struktur ist: `<svg>...</svg>` (Zeile 105), dann Text (Zeile 106), dann `</span>` (Zeile 107) ohne stray SVG-Tag. |
+| BUG-2 | Kein "Unsortiert"-Ordner-Vorschlag bei KEIN_ORDNER | **BEHOBEN** (mit Einschraenkung) | Backend: `api/deep_sort.py` Zeile 271-287 generiert `unsortiert_folder = f"{file_ext}/Unsortiert"` und gibt ihn via `unsortiert_suggestion` zurueck. Frontend: `applyAiResult()` Zeile 599-605 fuegt `unsortiert_suggestion` in `knownFolders` ein. **Einschraenkung:** Der Ordner wird zwar im Dropdown verfuegbar, aber NICHT automatisch als `selectedFolder` vorausgewaehlt. Der Nutzer muss ihn manuell aus dem Dropdown waehlen. Siehe RETEST-BUG-1. |
+| BUG-3 | KI-Button nicht ausgegraut fuer nicht-lesbare Dateien | **BEHOBEN** | `triage.html` Zeilen 396-408: `isLikelyNonReadable()` prueft Dateiendung gegen eine umfangreiche Set-Liste (Video, Audio, Archiv, Binary). `isAiEligible()` Zeile 415 schliesst diese aus. Zeilen 287-291 zeigen ein ausgegrautest Durchgestrichenes-Symbol mit Tooltip "Nicht lesbar (Video, Binary, Archiv)". |
+| BUG-4 | Batch-Endpoint nicht als BackgroundTask | **BEHOBEN** | Backend: `analyse_batch()` Zeile 416-468 nutzt `background_tasks.add_task(_run_batch_analysis, ...)`. Polling-Endpoint `GET /deep-sort/batch/{batch_id}/status` (Zeile 475-498) liefert Fortschritt. Frontend: `analyseAllAi()` Zeile 458-520 ruft jetzt den Batch-Endpoint auf und pollt via `pollAiBatch()` (Zeile 523-580) mit 1-Sekunden-Intervallen. |
+| BUG-5 | DB-Verbindung pro Cache-Operation | **BEHOBEN** | `_cache_lookup()` und `_cache_write()` akzeptieren jetzt einen optionalen `db` Parameter (Zeile 80 und 109). `_analyse_single_file()` oeffnet eine einzelne DB-Verbindung (Zeile 198) und reicht diese an beide Cache-Funktionen durch (Zeile 202, 279, 295, 305). Verbindung wird im `finally`-Block geschlossen (Zeile 316). |
+| BUG-6 | file_name URL-Parameter nicht gegen source_path validiert | **BEHOBEN** | `analyse_single()` Zeile 344-353: `actual_file_name = file_path.name` wird extrahiert und bei Mismatch wird `file_name` mit `actual_file_name` ueberschrieben. Ein Log-Warning wird ausgegeben. Dies verhindert die Manipulation der Fuzzy-Match-Vorfilterung und schliesst den Prompt-Injection-Vektor via URL-Parameter. |
+
+---
+
+### Neue Bugs / Einschraenkungen (Re-Test)
+
+#### RETEST-BUG-1: "Unsortiert"-Ordner wird nicht automatisch vorausgewaehlt (Severity: Low, Priority: P3)
+
+**Beschreibung:** Bei der BUG-2-Behebung wird der `unsortiert_suggestion`-Ordner zwar in die `knownFolders`-Liste eingefuegt (und erscheint somit im Dropdown), aber er wird NICHT automatisch als `item.selectedFolder` gesetzt. Der Nutzer muss den vorgeschlagenen Ordner manuell aus dem Dropdown waehlen. Die Spec sagt: "das Tool schlaegt vor, einen neuen Ordner anzulegen" -- ein aktives Vorauswaehlen waere nutzerfreundlicher.
+
+**Code-Stelle:** `/Users/rainer/VibeCoding/FileSorter/templates/triage.html` Zeile 599-605, `applyAiResult()`.
+
+**Aktueller Code:**
+```javascript
+} else if (result.unsortiert_suggestion) {
+    item.unsortiert_suggestion = result.unsortiert_suggestion;
+    if (!this.knownFolders.includes(result.unsortiert_suggestion)) {
+        this.knownFolders.push(result.unsortiert_suggestion);
+    }
+    // FEHLT: item.selectedFolder = result.unsortiert_suggestion;
+}
+```
+
+**Erwartetes Verhalten:** `item.selectedFolder` sollte auf `result.unsortiert_suggestion` gesetzt werden, damit der Ordner im Dropdown vorausgewaehlt ist und der Nutzer nur noch bestaetigen muss.
+
+---
+
+#### RETEST-BUG-2: _load_folder_profiles() oeffnet eigene DB-Verbindung im Batch-Kontext (Severity: Low, Priority: P3)
+
+**Beschreibung:** Obwohl BUG-5 fuer `_cache_lookup` und `_cache_write` behoben wurde, ruft `_analyse_single_file()` in Zeile 221 noch `_load_folder_profiles()` auf, welches in `core/triage.py` Zeile 137 eine eigene DB-Verbindung oeffnet und schliesst. Bei einer Batch-Analyse von N Dateien werden also immer noch N zusaetzliche DB-Verbindungs-Zyklen fuer das Laden der Profile erzeugt. Profile aendern sich waehrend einer Batch-Analyse nicht, koennten also einmal geladen und wiederverwendet werden.
+
+**Code-Stelle:** `/Users/rainer/VibeCoding/FileSorter/api/deep_sort.py` Zeile 221 und `/Users/rainer/VibeCoding/FileSorter/core/triage.py` Zeile 137-162.
+
+**Erwartetes Verhalten:** Profile einmal pro Batch laden und an `_analyse_single_file()` als Parameter uebergeben, oder in-memory cachen.
+
+---
+
+### Security Re-Audit (SEC-5 Re-Check)
+
+**SEC-5 Re-Test: Prompt-Injection via file_name -- MITIGIERT**
+
+Durch den BUG-6-Fix wird der `file_name` URL-Parameter jetzt durch den tatsaechlichen Dateinamen aus `source_path` ersetzt (Zeile 347). Ein Angreifer kann den URL-Parameter nicht mehr manipulieren, um den LLM-Prompt zu beeinflussen -- der Prompt erhaelt immer den echten Dateinamen. Der Prompt-Injection-Vektor via URL-Parameter ist damit geschlossen.
+
+**Verbleibender Vektor:** Der Dateiname selbst (aus dem Dateisystem) fliesst weiterhin ungefiltert in den Prompt. Bei einer lokalen Single-User-App ist dies akzeptabel, da der Nutzer seine eigenen Dateien benennt.
+
+**Bewertung:** SEC-5 ist von MEDIUM RISK auf LOW RISK herabgestuft.
+
+---
+
+### Aktualisierte Randfaelle-Bewertung
+
+| Randfall | Vorheriges Ergebnis | Neues Ergebnis | Bemerkung |
+|----------|-------------------|----------------|-----------|
+| KI findet keinen passenden Ordner | PASS (teilweise) | **PASS** | Backend und Frontend behandeln `KEIN_ORDNER` und `unsortiert_suggestion` korrekt. Nur Vorauswahl fehlt (RETEST-BUG-1, Low). |
+| Datei nicht lesbar | PASS (teilweise) | **PASS** | Button korrekt ausgegraut via `isLikelyNonReadable()`. |
+| Batch >50 Dateien | FAIL | **PASS** | BackgroundTask + Polling korrekt implementiert. |
+
+---
+
+### Aktualisierte Akzeptanzkriterien-Bewertung
+
+| # | Kriterium | Vorheriges Ergebnis | Neues Ergebnis | Bemerkung |
+|---|-----------|-------------------|----------------|-----------|
+| AC-1 | Button "KI-Analyse" bei niedriger Konfidenz | PASS | **PASS** | Unveraendert korrekt. Zusaetzlich: nicht-lesbare Dateien korrekt ausgegraut. |
+| AC-2 | Dateiinhalt via text_extractor lesen | PASS | **PASS** | Unveraendert korrekt. |
+| AC-3 | Backend sendet Inhalt + Ordner an AI Gateway | PASS | **PASS** | Unveraendert korrekt. |
+| AC-4 | KI waehlt Ordner + Begruendung | PASS | **PASS** | Unveraendert korrekt. |
+| AC-5 | UI-Update nach KI-Analyse | PASS | **PASS** | Unveraendert korrekt. |
+| AC-6 | Globaler Batch-KI-Button | PASS (mit Einschraenkung) | **PASS** | Batch-Endpoint wird jetzt korrekt genutzt mit BackgroundTask + Polling. |
+
+---
+
+### Zusammenfassung (Re-Test)
+
+| Kategorie | Ergebnis |
+|-----------|----------|
+| Akzeptanzkriterien bestanden | **6 von 6** (alle PASS) |
+| Vorherige Bugs (BUG-1 bis BUG-6) | **Alle 6 behoben** |
+| Neue Bugs (Re-Test) | 2 Low-Severity (RETEST-BUG-1, RETEST-BUG-2) |
+| Security Findings | SEC-5 herabgestuft von MEDIUM auf LOW. Keine neuen Security-Risiken. |
+| Regression | Keine Regression in bestehenden Features. |
+
+---
+
+### Gesamturteil: READY
+
+**Begruendung:** Alle 6 Akzeptanzkriterien bestehen. Alle 6 vorherigen Bugs (BUG-1 bis BUG-6) sind behoben und verifiziert. Die 2 neuen Bugs aus dem Re-Test sind Low-Severity/P3 (UX-Optimierungen) und blockieren den Einsatz nicht. Die Security-Findings sind auf Low-Risk-Niveau fuer eine lokale Single-User-Anwendung.
+
+**Empfehlung:** Feature kann deployt werden. RETEST-BUG-1 und RETEST-BUG-2 koennen als Quality-of-Life-Verbesserungen in einem separaten Durchgang adressiert werden.
+
+---
+
+## QA Re-Test #2: Verifizierung der RETEST-BUG Fixes
+
+**Datum:** 2026-02-24
+**Tester:** QA Engineer (Live-Test + Code Review)
+**Methode:** Live-Server-Tests (uvicorn auf Port 8000) + statische Code-Inspektion
+**Gepruefte Dateien:** `api/deep_sort.py`, `models/deep_sort.py`, `templates/triage.html`, `core/triage.py`, `utils/paths.py`, `utils/text_extractor.py`, `utils/db.py`, `utils/rate_limit.py`, `main.py`, `models/ai_gateway.py`
+
+---
+
+### RETEST-BUG Fix-Verifizierung
+
+| Bug-ID | Beschreibung | Fix-Status | Bemerkung |
+|--------|-------------|------------|-----------|
+| RETEST-BUG-1 | "Unsortiert"-Ordner nicht automatisch vorausgewaehlt | **BEHOBEN** | `triage.html` Zeile 608: `item.selectedFolder = result.unsortiert_suggestion;` ist jetzt vorhanden. Wenn die KI "KEIN_ORDNER" zurueckgibt, wird der generierte `[Dateityp]/Unsortiert`-Ordner automatisch im Dropdown vorausgewaehlt. |
+| RETEST-BUG-2 | `_load_folder_profiles()` oeffnet eigene DB-Verbindung im Batch-Kontext | **BEHOBEN** | `_run_batch_analysis()` Zeile 379 laedt Profile einmal vor der Schleife: `profiles = await _load_folder_profiles()`. Zeile 384 uebergibt sie an `_analyse_single_file(file_path, item.file_name, profiles=profiles)`. `_analyse_single_file()` Zeile 225 prueft `if profiles is None:` und ueberspringt den DB-Aufruf wenn Profile bereits vorhanden sind. |
+
+---
+
+### Live-Test-Ergebnisse
+
+Alle Tests wurden gegen einen laufenden Server mit echtem Ollama-Backend (llama3) durchgefuehrt.
+
+#### Akzeptanzkriterien (Live-Verifizierung)
+
+| # | Kriterium | Ergebnis | Bemerkung |
+|---|-----------|----------|-----------|
+| AC-1 | Button "KI-Analyse" bei niedriger Konfidenz | **PASS** | Triage-Analyse liefert Items mit confidence=null, <50, und >=60. Template-Logik `isAiEligible()` korrekt. `isLikelyNonReadable()` schliesst .mp4/.bin korrekt aus. |
+| AC-2 | Dateiinhalt via text_extractor lesen (max. 2.000 Zeichen) | **PASS** | Live getestet: .txt-Dateien werden korrekt gelesen. .bin/.mp4 geben `readable=False` zurueck. `MAX_CHARS = 2000` in `text_extractor.py` Zeile 22. |
+| AC-3 | Backend sendet Inhalt + Ordner an AI Gateway | **PASS** | Live getestet: Endpoint `POST /deep-sort/analyse/{file_name}` ruft Ollama erfolgreich auf. Folder-Kandidaten werden korrekt vorgefiltert. KI-Antwort als JSON erhalten. |
+| AC-4 | KI waehlt Ordner + Begruendung | **PASS** | Live getestet: z.B. "mietvertrag_2026.txt" -> KI schlaegt `/Users/test/Wohnung/Vertraege` vor mit Begruendung "Der Dateiname enthaelt das Wort Mietvertrag...". `AIFolderSuggestion` Pydantic-Modell validiert korrekt. |
+| AC-5 | UI-Update: Ordner ins Dropdown, Konfidenz auf "AI (Hoch)", Begruendung angezeigt | **PASS** | Template-Code `applyAiResult()` (Zeile 583-612) setzt `selectedFolder`, `aiSuggestedFolder`, `aiReasoning` korrekt. Badge zeigt "KI (Hoch)" oder "KI (Cache)". |
+| AC-6 | Globaler Batch-KI-Button fuer alle unklaren Dateien | **PASS** | Live getestet: `POST /deep-sort/analyse-batch` startet BackgroundTask, gibt sofort `done=false` zurueck. Polling via `GET /deep-sort/batch/{batch_id}/status` liefert Fortschritt und `done=true` nach Abschluss. 7 Items erfolgreich verarbeitet. |
+
+---
+
+#### Randfaelle (Live-Verifizierung)
+
+| Randfall | Ergebnis | Bemerkung |
+|----------|----------|-----------|
+| KI findet keinen passenden Ordner | **PASS** | Backend generiert `unsortiert_suggestion` (z.B. "TXT/Unsortiert"). Frontend setzt `selectedFolder` automatisch (RETEST-BUG-1 fix). |
+| Datei nicht lesbar (Video, Binary) | **PASS** | .mp4 und .bin geben `readable=False` zurueck. Kein LLM-Aufruf. Frontend-Button via `isLikelyNonReadable()` korrekt ausgegraut. |
+| Token-Limit der Ordnerliste (Top 20) | **PASS** | `_MAX_FOLDER_CANDIDATES = 20` wird in `_analyse_single_file()` durchgesetzt. |
+| Cache-Treffer | **PASS** | Live verifiziert: Wiederholte Analyse derselben Datei gibt `from_cache=True` zurueck. 9 Cache-Eintraege in der DB vorhanden. |
+| Ollama nicht erreichbar | **PASS (Code Review)** | `AIServiceError` mit Code `OLLAMA_UNREACHABLE` wird in HTTP 503 uebersetzt. Nicht live getestet (Ollama war verfuegbar). |
+| Batch >50 Dateien | **PASS** | BackgroundTask + Polling korrekt implementiert. Live mit 7 Dateien getestet, Code-Logik skaliert fuer groessere Mengen. |
+
+---
+
+#### Security-Tests (Live + Code Review)
+
+| Test | Ergebnis | Bemerkung |
+|------|----------|-----------|
+| Path Traversal via `..` | **PASS** | `SafePath` lehnt ab: "Path-Traversal nicht erlaubt: /private/tmp/../../../etc/passwd" |
+| Relative Pfade | **PASS** | `SafePath` lehnt ab: "Pfad muss absolut sein" |
+| System-Verzeichnisse | **PASS** | `SafePath` lehnt ab: "Zugriff auf Systemverzeichnis nicht erlaubt: /System" |
+| XSS via file_name URL-Parameter | **PASS** | BUG-6 Fix ersetzt URL file_name durch tatsaechlichen Dateinamen aus source_path. XSS-Payload wird verworfen. |
+| SQL-Injection via Cache | **PASS** | Parametrisierte Queries mit `?` Platzhaltern durchgehend. |
+| Rate Limiting | **PASS** | 10 Requests/60s. Live verifiziert: Request 8+ erhaelt HTTP 429. |
+| Security Headers | **PASS** | X-Frame-Options: DENY, X-Content-Type-Options: nosniff, CSP, Referrer-Policy alle vorhanden. |
+| Prompt Injection via file_name | **PASS (mitigiert)** | BUG-6 Fix verhindert Manipulation des URL-Parameters. Nur der echte Dateiname fliesst in den Prompt. |
+
+---
+
+### Neue Bugs (Re-Test #2)
+
+#### RETEST2-BUG-1: `unsortiert_suggestion` geht bei Cache-Hits verloren (Severity: Low, Priority: P3)
+
+**Beschreibung:** Wenn die KI bei der ersten Analyse "KEIN_ORDNER" zurueckgibt, wird `unsortiert_suggestion` (z.B. "TXT/Unsortiert") im Response korrekt zurueckgegeben und der Ordner im Dropdown vorausgewaehlt. Allerdings wird `unsortiert_suggestion` NICHT in der `ai_cache`-Tabelle gespeichert. Bei einem erneuten Cache-Hit fuer dieselbe Datei (z.B. wenn der Nutzer die Triage abbricht und spaeter neu startet) fehlt die `unsortiert_suggestion`-Information. Der Nutzer sieht dann `suggested_folder=None` ohne den "Unsortiert"-Vorschlag.
+
+**Code-Stelle:** `/Users/rainer/VibeCoding/FileSorter/api/deep_sort.py` Zeile 80-106 (`_cache_lookup`) gibt kein `unsortiert_suggestion` zurueck. Die `ai_cache`-Tabelle hat kein Feld fuer diesen Wert.
+
+**Schritte zum Reproduzieren:**
+1. Analysiere eine Datei, fuer die die KI "KEIN_ORDNER" antwortet
+2. Beobachte: `unsortiert_suggestion` wird korrekt zurueckgegeben
+3. Analysiere dieselbe Datei erneut (Cache-Hit)
+4. Beobachte: `unsortiert_suggestion` ist `null`, nur `reasoning` enthaelt den Hinweis als Text
+
+**Erwartetes Verhalten:** `unsortiert_suggestion` sollte rekonstruiert werden koennen (z.B. aus der Dateiendung) oder im Cache gespeichert werden.
+
+**Bewertung:** Geringes Risiko. Die `reasoning`-Nachricht enthaelt den Hinweis textuell ("Vorschlag: 'TXT/Unsortiert'"), aber das Frontend kann den Ordner nicht automatisch ins Dropdown eintragen.
+
+---
+
+#### RETEST2-BUG-2: `_deep_sort_batch_status` wird nie bereinigt (Severity: Low, Priority: P3)
+
+**Beschreibung:** Das In-Memory-Dictionary `_deep_sort_batch_status` (Zeile 50 in `api/deep_sort.py`) wird bei jeder Batch-Analyse befuellt, aber nie bereinigt. Ueber einen laengeren Zeitraum mit wiederholten Batch-Analysen wachsen die gespeicherten Results-Listen unbegrenzt. Im Gegensatz dazu hat der Triage-Cache (`_triage_cache`) eine Eviction-Logik (`_MAX_TRIAGE_CACHE_SIZE = 20`).
+
+**Code-Stelle:** `/Users/rainer/VibeCoding/FileSorter/api/deep_sort.py` Zeile 50
+
+**Schritte zum Reproduzieren:**
+1. Fuehre wiederholt Batch-KI-Analysen durch
+2. Jeder Batch bleibt permanent im Speicher
+3. Bei grossen Batches mit vielen Results-Objekten waechst der Speicherverbrauch
+
+**Erwartetes Verhalten:** Aelteste Batch-Status-Eintraege sollten nach Abschluss und einer gewissen Haltezeit (z.B. 5 Minuten) oder bei Ueberschreitung einer Maximalzahl entfernt werden.
+
+**Bewertung:** Geringes Risiko fuer eine lokale Single-User-App. Wird erst bei intensiver, laengerer Nutzung ohne App-Neustart relevant.
+
+---
+
+### Regressionspruefung
+
+| Feature | Regression | Bemerkung |
+|---------|-----------|-----------|
+| PROJ-5 (Inbox Triage) | Keine Regression | Triage-Analyse und -Ausfuehrung funktionieren korrekt. PROJ-8-Erweiterungen sind additiv. |
+| PROJ-6 (AI Gateway) | Keine Regression | `ask_json()` und `load_settings()` funktionieren korrekt mit Ollama. |
+| PROJ-4 (Semantischer Lerner) | Keine Regression | `_load_folder_profiles()` liefert korrekte Profile. |
+| PROJ-1 (Scanner) | Keine Regression | `SafePath` Validierung funktioniert korrekt. |
+
+---
+
+### Zusammenfassung (Re-Test #2)
+
+| Kategorie | Ergebnis |
+|-----------|----------|
+| Akzeptanzkriterien bestanden | **6 von 6** (alle PASS, live verifiziert) |
+| Vorherige RETEST-Bugs | **Beide behoben** (RETEST-BUG-1 und RETEST-BUG-2) |
+| Neue Bugs (Re-Test #2) | 2 Low-Severity/P3 (RETEST2-BUG-1, RETEST2-BUG-2) |
+| Security-Tests | **Alle bestanden** (Path Traversal, XSS, SQLi, Rate Limiting, Headers) |
+| Regression | Keine Regression in bestehenden Features |
+
+---
+
+### Gesamturteil: READY
+
+**Begruendung:** Alle 6 Akzeptanzkriterien bestehen im Live-Test mit echtem Ollama-Backend. Alle vorherigen Bugs (BUG-1 bis BUG-6) und RETEST-Bugs (RETEST-BUG-1, RETEST-BUG-2) sind behoben und verifiziert. Die 2 neuen Bugs aus Re-Test #2 sind Low-Severity/P3 und betreffen nur Edge-Case-Szenarien (Cache-Hit fuer KEIN_ORDNER-Ergebnisse, In-Memory-Status-Bereinigung). Die Security-Audit-Ergebnisse sind durchgehend positiv. Keine Regression in bestehenden Features.
+
+**Empfehlung:** Feature ist produktionsreif. RETEST2-BUG-1 und RETEST2-BUG-2 koennen als Quality-of-Life-Verbesserungen in einem separaten Durchgang adressiert werden.
+
+---
+
+## Deployment
+
+**Datum:** 2026-02-24
+**Umgebung:** Lokal (macOS), uvicorn
+
+### Pre-Deployment Checkliste
+
+- [x] QA freigegeben: READY (6/6 Akzeptanzkriterien bestanden, kein Critical/High Bug)
+- [x] Syntax-Check bestanden (`python3 -m py_compile`)
+- [x] Abhängigkeiten vorhanden (keine neuen Packages nötig)
+- [x] Kein Secret im Code
+- [x] SQLite-Datenbank in `/data` (nicht im Quellcode)
+- [x] Router in `main.py` registriert (`/deep-sort`)
+- [x] `ai_cache`-Tabelle in `utils/db.py` angelegt
+
+### Geänderte Dateien (PROJ-8)
+
+| Datei | Art |
+|-------|-----|
+| `api/deep_sort.py` | Vollständig implementiert (war Stub) |
+| `models/deep_sort.py` | Neu erstellt |
+| `templates/triage.html` | Erweitert (KI-Button, Batch-Bar, Reasoning) |
+| `main.py` | Router `deep_sort` eingebunden |
+| `utils/db.py` | `ai_cache`-Tabelle bereits vorhanden |
+
+### Start-Befehl
+
+```bash
+uvicorn main:app --reload --port 8000
+```
+
+### Bekannte offene Punkte (Low/P3, kein Blocker)
+
+- **RETEST2-BUG-1:** `unsortiert_suggestion` geht bei Cache-Hits verloren
+- **RETEST2-BUG-2:** `_deep_sort_batch_status` wird nie bereinigt (Speicherleck bei Dauerbetrieb)

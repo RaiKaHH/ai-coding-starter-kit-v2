@@ -93,7 +93,27 @@
             <span x-text="unmatchedCount" class="text-amber-600 font-medium"></span> nicht zugeordnet
           </p>
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-2 flex-wrap">
+          <!-- PROJ-8: Batch AI analysis button -->
+          <template x-if="getAiEligibleCount() > 0">
+            <button
+              @click="analyseAllAi()"
+              :disabled="aiBatchRunning"
+              class="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <span x-show="!aiBatchRunning" class="flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" /></svg>
+                KI fuer alle unklaren (<span x-text="getAiEligibleCount()"></span>)
+              </span>
+              <span x-show="aiBatchRunning" class="flex items-center gap-1">
+                <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                KI analysiert <span x-text="aiBatchProgress"></span> / <span x-text="aiBatchTotal"></span>...
+              </span>
+            </button>
+          </template>
           <button
             @click="confirmAll()"
             class="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
@@ -119,6 +139,17 @@
         </div>
       </div>
 
+      <!-- PROJ-8: Batch AI result summary -->
+      <template x-if="aiBatchDone">
+        <div class="px-5 py-3 border-b border-gray-200 bg-indigo-50">
+          <p class="text-xs text-indigo-700">
+            <span class="font-medium">KI-Analyse abgeschlossen:</span>
+            <span x-text="aiBatchSuccessCount"></span> Dateien zugeordnet,
+            <span x-text="aiBatchFailedCount"></span> unklar geblieben.
+          </p>
+        </div>
+      </template>
+
       <!-- Triage table -->
       <div class="overflow-x-auto custom-scrollbar">
         <table class="min-w-full divide-y divide-gray-200">
@@ -132,6 +163,7 @@
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vorschlag / Zielordner</th>
               <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Konfidenz</th>
               <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Typ</th>
+              <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">KI</th>
             </tr>
           </thead>
           <tbody class="bg-white divide-y divide-gray-200">
@@ -143,10 +175,18 @@
                          :disabled="!item.selectedFolder"
                          class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
                 </td>
-                <!-- Filename -->
+                <!-- Filename + AI reasoning -->
                 <td class="px-4 py-3">
                   <div class="text-sm font-medium text-gray-900 truncate max-w-xs" x-text="item.file_name" :title="item.source_path"></div>
                   <div class="text-xs text-gray-400 truncate max-w-xs" x-text="item.source_path"></div>
+                  <!-- PROJ-8: AI reasoning shown below filename -->
+                  <template x-if="item.aiReasoning">
+                    <div class="mt-1 text-xs text-gray-500 italic max-w-sm" x-text="item.aiReasoning"></div>
+                  </template>
+                  <!-- PROJ-8: AI error shown below filename -->
+                  <template x-if="item.aiError">
+                    <div class="mt-1 text-xs text-red-500" x-text="item.aiError"></div>
+                  </template>
                 </td>
                 <!-- Folder dropdown -->
                 <td class="px-4 py-3">
@@ -178,7 +218,18 @@
                 </td>
                 <!-- Confidence -->
                 <td class="px-4 py-3 text-center">
-                  <template x-if="item.confidence !== null">
+                  <!-- PROJ-8: AI confidence badge -->
+                  <template x-if="item.aiAnalysed && item.aiSuggestedFolder">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                      <span x-text="item.aiFromCache ? 'KI (Cache)' : 'KI (Hoch)'"></span>
+                    </span>
+                  </template>
+                  <template x-if="item.aiAnalysed && !item.aiSuggestedFolder">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                      KI (Unklar)
+                    </span>
+                  </template>
+                  <template x-if="!item.aiAnalysed && item.confidence !== null">
                     <span
                       class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
                       :class="{
@@ -191,20 +242,55 @@
                       <span x-text="item.confidence + '%'"></span>
                     </span>
                   </template>
-                  <template x-if="item.confidence === null">
+                  <template x-if="!item.aiAnalysed && item.confidence === null">
                     <span class="text-xs text-gray-400">--</span>
                   </template>
                 </td>
                 <!-- Match type -->
                 <td class="px-4 py-3 text-center">
-                  <template x-if="item.match_type === 'strict'">
+                  <template x-if="item.aiAnalysed">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">KI</span>
+                  </template>
+                  <template x-if="!item.aiAnalysed && item.match_type === 'strict'">
                     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">Regel</span>
                   </template>
-                  <template x-if="item.match_type === 'fuzzy'">
+                  <template x-if="!item.aiAnalysed && item.match_type === 'fuzzy'">
                     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">Fuzzy</span>
                   </template>
-                  <template x-if="!item.match_type">
+                  <template x-if="!item.aiAnalysed && !item.match_type">
                     <span class="text-xs text-gray-400">--</span>
+                  </template>
+                </td>
+                <!-- PROJ-8: AI analyse button -->
+                <td class="px-4 py-3 text-center">
+                  <template x-if="isAiEligible(item) && !item.aiAnalysed && !item.aiLoading">
+                    <button
+                      @click="analyseSingleAi(idx)"
+                      class="px-2 py-1 text-xs font-medium rounded-md bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition-colors whitespace-nowrap"
+                      title="KI-Analyse starten"
+                    >
+                      <span class="flex items-center gap-1">
+                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" /></svg>
+                        KI
+                      </span>
+                    </button>
+                  </template>
+                  <template x-if="item.aiLoading">
+                    <svg class="animate-spin h-4 w-4 text-indigo-500 mx-auto" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                  </template>
+                  <template x-if="item.aiAnalysed && !item.aiLoading">
+                    <span class="text-xs text-gray-400" title="Bereits analysiert">--</span>
+                  </template>
+                  <template x-if="!isAiEligible(item) && !item.aiAnalysed && !item.aiLoading && isLikelyNonReadable(item)">
+                    <span class="text-xs text-gray-300" title="Nicht lesbar (Video, Binary, Archiv)">
+                      <svg class="w-3.5 h-3.5 inline text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                    </span>
+                  </template>
+                  <template x-if="!isAiEligible(item) && !item.aiAnalysed && !item.aiLoading && !isLikelyNonReadable(item)">
+                    <span class="text-xs text-gray-300" title="Konfidenz ausreichend">--</span>
                   </template>
                 </td>
               </tr>
@@ -290,12 +376,239 @@ function triageApp() {
     executionDone: false,
     executionResult: { moved_count: 0, failed_count: 0, errors: [] },
 
+    // PROJ-8: AI batch state
+    aiBatchRunning: false,
+    aiBatchDone: false,
+    aiBatchProgress: 0,
+    aiBatchTotal: 0,
+    aiBatchSuccessCount: 0,
+    aiBatchFailedCount: 0,
+
     // Shorten a folder path for display (show last 2-3 segments)
     shortenPath(fullPath) {
       if (!fullPath) return '';
       const parts = fullPath.split('/').filter(Boolean);
       if (parts.length <= 3) return fullPath;
       return '.../' + parts.slice(-3).join('/');
+    },
+
+    // BUG-3 FIX: Known non-readable file extensions (video, binary, archives)
+    _nonReadableExts: new Set([
+      '.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm', '.m4v',
+      '.mp3', '.wav', '.aac', '.flac', '.ogg', '.wma', '.m4a',
+      '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.xz', '.dmg', '.iso',
+      '.exe', '.dll', '.so', '.dylib', '.bin', '.dat',
+      '.app', '.pkg', '.deb', '.rpm',
+    ]),
+
+    // BUG-3 FIX: Check if a file is likely non-readable based on extension
+    isLikelyNonReadable(item) {
+      const ext = (item.file_name || '').toLowerCase().match(/\.[^.]+$/);
+      return ext && this._nonReadableExts.has(ext[0]);
+    },
+
+    // PROJ-8: Check if an item is eligible for AI analysis
+    isAiEligible(item) {
+      // Eligible if: no match, low confidence, or unassigned
+      if (item.aiAnalysed) return false;
+      // BUG-3 FIX: Not eligible if file is known to be non-readable
+      if (this.isLikelyNonReadable(item)) return false;
+      if (item.confidence === null) return true;
+      if (item.confidence < 50) return true;
+      if (!item.suggested_folder) return true;
+      return false;
+    },
+
+    // PROJ-8: Count items eligible for AI batch analysis
+    getAiEligibleCount() {
+      return this.items.filter(i => this.isAiEligible(i)).length;
+    },
+
+    // PROJ-8: Single-file AI analysis
+    async analyseSingleAi(idx) {
+      const item = this.items[idx];
+      item.aiLoading = true;
+      item.aiError = null;
+
+      try {
+        const res = await fetch(`/deep-sort/analyse/${encodeURIComponent(item.file_name)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source_path: item.source_path,
+            batch_id: this.batchId,
+          }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.detail || `Fehler: ${res.status}`);
+        }
+
+        const result = await res.json();
+        this.applyAiResult(idx, result);
+
+      } catch (err) {
+        item.aiError = err.message;
+      } finally {
+        item.aiLoading = false;
+      }
+    },
+
+    // PROJ-8: Batch AI analysis via BackgroundTask + polling (BUG-4 FIX)
+    async analyseAllAi() {
+      const eligible = this.items
+        .map((item, idx) => ({ item, idx }))
+        .filter(({ item }) => this.isAiEligible(item));
+
+      if (eligible.length === 0) return;
+
+      this.aiBatchRunning = true;
+      this.aiBatchDone = false;
+      this.aiBatchProgress = 0;
+      this.aiBatchTotal = eligible.length;
+      this.aiBatchSuccessCount = 0;
+      this.aiBatchFailedCount = 0;
+
+      // Mark all eligible items as loading
+      for (const { item } of eligible) {
+        item.aiLoading = true;
+        item.aiError = null;
+      }
+
+      try {
+        // Start batch analysis via BackgroundTask endpoint
+        const res = await fetch('/deep-sort/analyse-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            batch_id: this.batchId,
+            threshold: 50,
+          }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.detail || `Fehler: ${res.status}`);
+        }
+
+        const startData = await res.json();
+
+        if (startData.done) {
+          // Immediate completion (e.g. no items to analyse)
+          this.aiBatchRunning = false;
+          this.aiBatchDone = true;
+          for (const { item } of eligible) {
+            item.aiLoading = false;
+          }
+          return;
+        }
+
+        // Poll for progress until done
+        await this.pollAiBatch(this.batchId, eligible);
+
+      } catch (err) {
+        // Global error: mark all as failed
+        for (const { item } of eligible) {
+          item.aiLoading = false;
+          item.aiError = err.message;
+        }
+        this.aiBatchFailedCount = eligible.length;
+        this.aiBatchRunning = false;
+        this.aiBatchDone = true;
+      }
+    },
+
+    // PROJ-8 BUG-4 FIX: Poll batch AI analysis status
+    async pollAiBatch(batchId, eligible) {
+      const maxAttempts = 300;  // 5 minutes max (1s intervals)
+      let lastProcessed = 0;
+
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+
+        try {
+          const res = await fetch(`/deep-sort/batch/${batchId}/status`);
+          if (!res.ok) continue;
+
+          const status = await res.json();
+          this.aiBatchProgress = status.processed + status.failed;
+          this.aiBatchTotal = status.total;
+
+          // Apply new results incrementally
+          if (status.results && status.results.length > lastProcessed) {
+            for (let j = lastProcessed; j < status.results.length; j++) {
+              const result = status.results[j];
+              // Find matching eligible item by source_path
+              const match = eligible.find(({ item }) => item.source_path === result.source_path);
+              if (match) {
+                this.applyAiResult(match.idx, result);
+                match.item.aiLoading = false;
+                if (result.suggested_folder) {
+                  this.aiBatchSuccessCount++;
+                } else {
+                  this.aiBatchFailedCount++;
+                }
+              }
+            }
+            lastProcessed = status.results.length;
+          }
+
+          if (status.done) {
+            // Mark any remaining items as no longer loading
+            for (const { item } of eligible) {
+              item.aiLoading = false;
+            }
+            this.aiBatchRunning = false;
+            this.aiBatchDone = true;
+            return;
+          }
+        } catch (err) {
+          console.warn('Poll-Fehler (KI-Batch):', err);
+        }
+      }
+
+      // Timeout
+      for (const { item } of eligible) {
+        item.aiLoading = false;
+        if (!item.aiAnalysed) {
+          item.aiError = 'Zeitueberschreitung bei der KI-Batch-Analyse.';
+        }
+      }
+      this.aiBatchRunning = false;
+      this.aiBatchDone = true;
+    },
+
+    // PROJ-8: Apply AI analysis result to a triage item
+    applyAiResult(idx, result) {
+      const item = this.items[idx];
+      item.aiAnalysed = true;
+      item.aiReasoning = result.reasoning || '';
+      item.aiFromCache = result.from_cache || false;
+      item.aiSuggestedFolder = result.suggested_folder || null;
+
+      if (result.suggested_folder) {
+        // Update the dropdown selection
+        item.selectedFolder = result.suggested_folder;
+        item.suggested_folder = result.suggested_folder;
+
+        // Add to known folders if not already present
+        if (!this.knownFolders.includes(result.suggested_folder)) {
+          this.knownFolders.push(result.suggested_folder);
+        }
+      } else if (result.unsortiert_suggestion) {
+        // BUG-2 FIX: When AI says no folder fits, suggest [Dateityp]/Unsortiert
+        item.unsortiert_suggestion = result.unsortiert_suggestion;
+        // Add the suggestion to known folders so it appears in the dropdown
+        if (!this.knownFolders.includes(result.unsortiert_suggestion)) {
+          this.knownFolders.push(result.unsortiert_suggestion);
+        }
+        // RETEST-BUG-1 FIX: Auto-select the Unsortiert folder so the user
+        // only needs to confirm instead of manually picking from the dropdown
+        item.selectedFolder = result.unsortiert_suggestion;
+      } else if (!result.readable) {
+        item.aiReasoning = 'Datei enthaelt keinen extrahierbaren Text. Nur Dateiname-Analyse moeglich.';
+      }
     },
 
     // Analyse inbox
@@ -306,6 +619,7 @@ function triageApp() {
       this.analysed = false;
       this.items = [];
       this.executionDone = false;
+      this.aiBatchDone = false;
 
       try {
         // Load known folders for dropdown
@@ -333,13 +647,20 @@ function triageApp() {
         this.batchId = data.batch_id;
         this.unmatchedCount = data.unmatched_count;
 
-        // Enrich items with UI state
+        // Enrich items with UI state (including PROJ-8 AI state)
         this.items = data.items.map(item => ({
           ...item,
           selectedFolder: item.suggested_folder || '',
           confirmed: false,  // BUG-4 FIX: Never auto-confirm; user must explicitly confirm
           rejected: false,
           originalFolder: item.suggested_folder,
+          // PROJ-8: AI analysis state per item
+          aiAnalysed: false,
+          aiLoading: false,
+          aiReasoning: null,
+          aiError: null,
+          aiSuggestedFolder: null,
+          aiFromCache: false,
         }));
 
         this.analysed = true;
@@ -476,6 +797,12 @@ function triageApp() {
       this.executionResult = { moved_count: 0, failed_count: 0, errors: [] };
       this.error = null;
       this.warning = null;
+      this.aiBatchDone = false;
+      this.aiBatchRunning = false;
+      this.aiBatchProgress = 0;
+      this.aiBatchTotal = 0;
+      this.aiBatchSuccessCount = 0;
+      this.aiBatchFailedCount = 0;
     },
   };
 }
