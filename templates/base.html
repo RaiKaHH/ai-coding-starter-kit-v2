@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FileSorter – {% block title %}{% endblock %}</title>
+  <!-- Tailwind CSS via CDN (no build step) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50:  '#eff6ff',
+              100: '#dbeafe',
+              200: '#bfdbfe',
+              300: '#93c5fd',
+              400: '#60a5fa',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              800: '#1e40af',
+              900: '#1e3a8a',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Alpine.js for reactive UI (no build step) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    /* Custom scrollbar for tables */
+    .custom-scrollbar::-webkit-scrollbar { height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 3px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    /* Pulse animation for scanning indicator */
+    @keyframes scan-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .scan-pulse { animation: scan-pulse 1.5s ease-in-out infinite; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen flex flex-col">
+
+  <!-- Navigation -->
+  <nav class="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
+    <div class="container mx-auto px-4 sm:px-6">
+      <div class="flex items-center justify-between h-14">
+        <!-- Logo / Brand -->
+        <a href="/scan/" class="flex items-center gap-2 text-lg font-bold text-brand-700 shrink-0">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+          </svg>
+          <span class="hidden sm:inline">FileSorter</span>
+        </a>
+
+        <!-- Desktop Nav Links -->
+        <div class="hidden md:flex items-center gap-1" x-data="{ current: window.location.pathname }">
+          <a href="/scan/"
+             :class="current.startsWith('/scan') ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'"
+             class="px-3 py-2 rounded-md text-sm font-medium transition-colors">
+            Scanner
+          </a>
+          <a href="/rename/"
+             :class="current.startsWith('/rename') ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'"
+             class="px-3 py-2 rounded-md text-sm font-medium transition-colors">
+            Umbenennen
+          </a>
+          <a href="/index/"
+             :class="current.startsWith('/index') ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'"
+             class="px-3 py-2 rounded-md text-sm font-medium transition-colors">
+            Indexer
+          </a>
+          <a href="/move/"
+             :class="current.startsWith('/move') ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'"
+             class="px-3 py-2 rounded-md text-sm font-medium transition-colors">
+            Verschieben
+          </a>
+          <a href="/triage/"
+             :class="current.startsWith('/triage') ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'"
+             class="px-3 py-2 rounded-md text-sm font-medium transition-colors">
+            Triage
+          </a>
+          <a href="/history/"
+             :class="current.startsWith('/history') ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'"
+             class="px-3 py-2 rounded-md text-sm font-medium transition-colors">
+            Historie
+          </a>
+        </div>
+
+        <!-- Settings + Mobile Toggle -->
+        <div class="flex items-center gap-2">
+          <a href="/ai/settings"
+             class="text-gray-500 hover:text-gray-700 p-2 rounded-md hover:bg-gray-50 transition-colors"
+             title="KI-Einstellungen"
+             aria-label="KI-Einstellungen">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </a>
+
+          <!-- Mobile hamburger -->
+          <button
+            class="md:hidden p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+            x-data="{ open: false }"
+            @click="open = !open; $dispatch('toggle-mobile-nav')"
+            aria-label="Navigation umschalten"
+          >
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile Nav Dropdown -->
+    <div
+      x-data="{ open: false }"
+      @toggle-mobile-nav.window="open = !open"
+      x-show="open"
+      x-cloak
+      x-transition:enter="transition ease-out duration-200"
+      x-transition:enter-start="opacity-0 -translate-y-1"
+      x-transition:enter-end="opacity-100 translate-y-0"
+      x-transition:leave="transition ease-in duration-150"
+      x-transition:leave-start="opacity-100 translate-y-0"
+      x-transition:leave-end="opacity-0 -translate-y-1"
+      class="md:hidden border-t border-gray-200 bg-white"
+    >
+      <div class="px-4 py-3 space-y-1">
+        <a href="/scan/"    class="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">Scanner</a>
+        <a href="/rename/"  class="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">Umbenennen</a>
+        <a href="/index/"   class="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">Indexer</a>
+        <a href="/move/"    class="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">Verschieben</a>
+        <a href="/triage/"  class="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">Triage</a>
+        <a href="/history/" class="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">Historie</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="container mx-auto px-4 sm:px-6 py-6 sm:py-8 flex-1">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-gray-200 bg-white py-4 mt-auto">
+    <div class="container mx-auto px-4 sm:px-6 text-center text-xs text-gray-400">
+      FileSorter &mdash; Lokale Dateiverwaltung &middot; Alle Daten bleiben auf deinem Mac.
+    </div>
+  </footer>
+
+</body>
+</html>

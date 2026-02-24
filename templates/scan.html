@@ -1,0 +1,742 @@
+{% extends "base.html" %}
+{% block title %}Verzeichnis-Scanner{% endblock %}
+{% block content %}
+
+<div x-data="scanApp()" x-init="init()">
+
+  <!-- Page Header -->
+  <div class="mb-6">
+    <h1 class="text-2xl sm:text-3xl font-bold text-gray-900">Verzeichnis-Scanner</h1>
+    <p class="mt-1 text-sm text-gray-500">
+      Analysiere Ordner und erhalte eine vollständige Übersicht aller enthaltenen Dateien.
+    </p>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- Folder Selection Card                                               -->
+  <!-- ================================================================== -->
+  <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-6 mb-6" aria-label="Ordner auswählen">
+
+    <div class="flex items-center gap-2 mb-4">
+      <svg class="w-5 h-5 text-brand-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+      </svg>
+      <h2 class="text-lg font-semibold text-gray-900">Ordnerpfad</h2>
+    </div>
+
+    <!-- Path Input Row -->
+    <div class="flex flex-col sm:flex-row gap-3">
+      <div class="flex-1 relative">
+        <input
+          type="text"
+          x-model="sourcePath"
+          placeholder="/Users/dein-name/Downloads"
+          :disabled="scanning"
+          aria-label="Ordnerpfad eingeben"
+          class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm
+                 focus:ring-2 focus:ring-brand-500 focus:border-brand-500
+                 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed
+                 placeholder:text-gray-400 transition-colors"
+          @keydown.enter="startScan()"
+        />
+        <!-- Clear button -->
+        <button
+          x-show="sourcePath && !scanning"
+          x-cloak
+          @click="sourcePath = ''"
+          class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          aria-label="Pfad löschen"
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <button
+        @click="pickFolder()"
+        :disabled="scanning || pickingFolder"
+        class="flex items-center justify-center gap-2 bg-white hover:bg-gray-50
+               text-gray-700 px-4 py-2.5 rounded-lg border border-gray-300
+               text-sm font-medium whitespace-nowrap
+               disabled:opacity-50 disabled:cursor-not-allowed
+               transition-colors shrink-0"
+        aria-label="Ordner über Finder auswählen"
+      >
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" />
+        </svg>
+        <span x-show="!pickingFolder">Ordner auswählen</span>
+        <span x-show="pickingFolder">Warte auf Finder...</span>
+      </button>
+    </div>
+
+    <!-- Options Row -->
+    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 mt-4">
+      <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          x-model="recursive"
+          :disabled="scanning"
+          class="rounded border-gray-300 text-brand-600 focus:ring-brand-500
+                 disabled:opacity-50 disabled:cursor-not-allowed"
+        />
+        Unterordner einschließen (rekursiv)
+      </label>
+
+      <button
+        @click="startScan()"
+        :disabled="scanning || !sourcePath.trim()"
+        class="sm:ml-auto flex items-center justify-center gap-2
+               bg-brand-600 hover:bg-brand-700 active:bg-brand-800
+               text-white px-6 py-2.5 rounded-lg text-sm font-medium
+               disabled:opacity-50 disabled:cursor-not-allowed
+               transition-colors shadow-sm w-full sm:w-auto"
+      >
+        <!-- Icon: play or spinner -->
+        <template x-if="!scanning">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+        </template>
+        <template x-if="scanning">
+          <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </template>
+        <span x-text="scanning ? 'Scan läuft...' : 'Scan starten'"></span>
+      </button>
+    </div>
+
+    <!-- Error Message -->
+    <div
+      x-show="error"
+      x-cloak
+      x-transition:enter="transition ease-out duration-200"
+      x-transition:enter-start="opacity-0 -translate-y-1"
+      x-transition:enter-end="opacity-100 translate-y-0"
+      class="mt-4 flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm"
+      role="alert"
+    >
+      <svg class="w-5 h-5 shrink-0 mt-0.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+      </svg>
+      <span x-text="error"></span>
+      <button @click="error = null" class="ml-auto text-red-400 hover:text-red-600 shrink-0" aria-label="Fehler schließen">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Scan Progress Card                                                  -->
+  <!-- ================================================================== -->
+  <section
+    x-show="scanning || status === 'completed' || status === 'failed'"
+    x-cloak
+    x-transition:enter="transition ease-out duration-300"
+    x-transition:enter-start="opacity-0 translate-y-2"
+    x-transition:enter-end="opacity-100 translate-y-0"
+    class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-6 mb-6"
+    aria-label="Scan-Fortschritt"
+  >
+    <!-- Status Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+      <div class="flex items-center gap-2">
+        <!-- Status icon -->
+        <template x-if="scanning">
+          <span class="flex h-3 w-3 relative">
+            <span class="scan-pulse absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3 w-3 bg-brand-500"></span>
+          </span>
+        </template>
+        <template x-if="status === 'completed'">
+          <svg class="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </template>
+        <template x-if="status === 'failed'">
+          <svg class="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </template>
+
+        <span class="text-sm font-medium">
+          <span x-show="scanning" class="text-brand-700">Scan läuft...</span>
+          <span x-show="status === 'completed'" class="text-green-700">Scan abgeschlossen</span>
+          <span x-show="status === 'failed'" class="text-red-700">Scan fehlgeschlagen</span>
+        </span>
+      </div>
+
+      <span class="text-sm text-gray-500 tabular-nums">
+        <span x-text="fileCount.toLocaleString('de-DE')"></span> Dateien gefunden
+      </span>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+      <div
+        class="h-2 rounded-full transition-all duration-500 ease-out"
+        :class="{
+          'bg-brand-500': scanning,
+          'bg-green-500': status === 'completed',
+          'bg-red-500': status === 'failed'
+        }"
+        :style="'width: ' + (scanning ? Math.min(95, Math.max(5, fileCount > 0 ? 50 : 15)) + '%' : '100%')"
+      ></div>
+    </div>
+
+    <!-- Scanned path info -->
+    <p class="mt-2 text-xs text-gray-400 truncate" x-show="sourcePath">
+      <span class="font-medium">Pfad:</span> <span x-text="sourcePath"></span>
+    </p>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Filters & Sorting Card                                              -->
+  <!-- ================================================================== -->
+  <section
+    x-show="status === 'completed' && fileCount > 0"
+    x-cloak
+    x-transition:enter="transition ease-out duration-300 delay-100"
+    x-transition:enter-start="opacity-0 translate-y-2"
+    x-transition:enter-end="opacity-100 translate-y-0"
+    class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 sm:p-6 mb-6"
+    aria-label="Filter und Sortierung"
+  >
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" />
+        </svg>
+        <h2 class="text-lg font-semibold text-gray-900">Filter &amp; Sortierung</h2>
+      </div>
+      <!-- Reset filters button -->
+      <button
+        x-show="filterExtension || filterDateFrom || filterDateTo"
+        x-cloak
+        @click="filterExtension = ''; filterDateFrom = ''; filterDateTo = ''; loadFiles()"
+        class="text-xs text-gray-500 hover:text-brand-600 transition-colors"
+      >
+        Filter zurücksetzen
+      </button>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <!-- Extension filter -->
+      <div>
+        <label for="filter-ext" class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
+          Dateiendung
+        </label>
+        <input
+          id="filter-ext"
+          type="text"
+          x-model="filterExtension"
+          placeholder=".pdf, .jpg, .docx"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
+                 focus:ring-2 focus:ring-brand-500 focus:border-brand-500
+                 placeholder:text-gray-400 transition-colors"
+          @keydown.enter="loadFiles()"
+        />
+      </div>
+
+      <!-- Date from -->
+      <div>
+        <label for="filter-from" class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
+          Erstellt von
+        </label>
+        <input
+          id="filter-from"
+          type="date"
+          x-model="filterDateFrom"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
+                 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors"
+        />
+      </div>
+
+      <!-- Date to -->
+      <div>
+        <label for="filter-to" class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
+          Erstellt bis
+        </label>
+        <input
+          id="filter-to"
+          type="date"
+          x-model="filterDateTo"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
+                 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors"
+        />
+      </div>
+
+      <!-- Sort by -->
+      <div>
+        <label for="sort-by" class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">
+          Sortierung
+        </label>
+        <select
+          id="sort-by"
+          x-model="sortBy"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm
+                 focus:ring-2 focus:ring-brand-500 focus:border-brand-500
+                 bg-white transition-colors"
+        >
+          <option value="name">Name</option>
+          <option value="size">Größe</option>
+          <option value="type">Typ</option>
+          <option value="created_at">Erstellungsdatum</option>
+          <option value="modified_at">Änderungsdatum</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Sort direction + Apply -->
+    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 mt-4">
+      <div class="flex items-center gap-4">
+        <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+          <input
+            type="radio"
+            x-model="sortOrder"
+            value="asc"
+            name="sortOrder"
+            class="border-gray-300 text-brand-600 focus:ring-brand-500"
+          />
+          Aufsteigend
+        </label>
+        <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+          <input
+            type="radio"
+            x-model="sortOrder"
+            value="desc"
+            name="sortOrder"
+            class="border-gray-300 text-brand-600 focus:ring-brand-500"
+          />
+          Absteigend
+        </label>
+      </div>
+      <button
+        @click="currentPage = 1; loadFiles()"
+        class="sm:ml-auto flex items-center gap-2 bg-brand-600 hover:bg-brand-700
+               text-white px-5 py-2 rounded-lg text-sm font-medium
+               transition-colors shadow-sm"
+      >
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" />
+        </svg>
+        Anwenden
+      </button>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Results Table (Desktop)                                             -->
+  <!-- ================================================================== -->
+  <section
+    x-show="files.length > 0"
+    x-cloak
+    x-transition:enter="transition ease-out duration-300 delay-200"
+    x-transition:enter-start="opacity-0 translate-y-2"
+    x-transition:enter-end="opacity-100 translate-y-0"
+    class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6"
+    aria-label="Scan-Ergebnisse"
+  >
+    <!-- Table Header / Pagination -->
+    <div class="px-5 sm:px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div class="flex items-center gap-2 text-sm text-gray-500">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+        </svg>
+        <span>
+          <span class="font-medium text-gray-700" x-text="totalFiltered.toLocaleString('de-DE')"></span>
+          Ergebnisse
+        </span>
+        <span class="text-gray-300">|</span>
+        <span>
+          Seite <span x-text="currentPage"></span>
+          von <span x-text="Math.max(1, Math.ceil(totalFiltered / pageSize))"></span>
+        </span>
+      </div>
+
+      <!-- Pagination Controls -->
+      <div class="flex items-center gap-2">
+        <button
+          @click="prevPage()"
+          :disabled="currentPage <= 1"
+          class="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg
+                 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          aria-label="Vorherige Seite"
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+          </svg>
+          Zurück
+        </button>
+        <button
+          @click="nextPage()"
+          :disabled="currentPage * pageSize >= totalFiltered"
+          class="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg
+                 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          aria-label="Nächste Seite"
+        >
+          Weiter
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading Overlay for file fetching -->
+    <div x-show="loadingFiles" x-cloak class="px-6 py-8 flex items-center justify-center gap-2 text-sm text-gray-500">
+      <svg class="w-5 h-5 animate-spin text-brand-500" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      Dateien werden geladen...
+    </div>
+
+    <!-- Desktop Table -->
+    <div x-show="!loadingFiles" class="overflow-x-auto custom-scrollbar hidden md:block">
+      <table class="w-full text-sm" role="table">
+        <thead class="bg-gray-50 border-b border-gray-100">
+          <tr>
+            <th class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider" scope="col">Name</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider" scope="col">Pfad</th>
+            <th class="text-right px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider" scope="col">Größe</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider" scope="col">Typ</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider" scope="col">Erstellt</th>
+            <th class="text-left px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider" scope="col">Geändert</th>
+            <th class="text-center px-4 py-3 font-medium text-gray-500 text-xs uppercase tracking-wider" scope="col">Flags</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          <template x-for="file in files" :key="file.id">
+            <tr class="hover:bg-gray-50/50 transition-colors">
+              <td class="px-4 py-2.5">
+                <div class="flex items-center gap-2">
+                  <span class="font-medium text-gray-900 truncate max-w-[200px]" x-text="file.name" :title="file.name"></span>
+                </div>
+              </td>
+              <td class="px-4 py-2.5">
+                <span class="text-gray-500 truncate max-w-[280px] block text-xs" x-text="file.path" :title="file.path"></span>
+              </td>
+              <td class="px-4 py-2.5 text-right whitespace-nowrap tabular-nums text-gray-700" x-text="file.size_human"></td>
+              <td class="px-4 py-2.5">
+                <span
+                  x-show="file.mime_type"
+                  class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-600"
+                  x-text="file.mime_type"
+                ></span>
+                <span x-show="!file.mime_type" class="text-gray-300">&mdash;</span>
+              </td>
+              <td class="px-4 py-2.5 text-gray-500 whitespace-nowrap text-xs tabular-nums" x-text="formatDate(file.created_at)"></td>
+              <td class="px-4 py-2.5 text-gray-500 whitespace-nowrap text-xs tabular-nums" x-text="formatDate(file.modified_at)"></td>
+              <td class="px-4 py-2.5 text-center">
+                <div class="flex items-center justify-center gap-1">
+                  <span
+                    x-show="file.is_symlink"
+                    class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"
+                  >Symlink</span>
+                  <span
+                    x-show="file.access_denied"
+                    class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-red-50 text-red-700 border border-red-200"
+                  >Kein Zugriff</span>
+                </div>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Mobile Card Layout -->
+    <div x-show="!loadingFiles" class="md:hidden divide-y divide-gray-100">
+      <template x-for="file in files" :key="file.id">
+        <div class="px-4 py-3">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-gray-900 truncate" x-text="file.name" :title="file.name"></p>
+              <p class="text-xs text-gray-400 truncate mt-0.5" x-text="file.path" :title="file.path"></p>
+            </div>
+            <span class="text-sm font-medium text-gray-700 whitespace-nowrap tabular-nums shrink-0" x-text="file.size_human"></span>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 mt-2">
+            <span
+              x-show="file.mime_type"
+              class="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-gray-100 text-gray-600"
+              x-text="file.mime_type"
+            ></span>
+            <span class="text-xs text-gray-400" x-text="formatDate(file.created_at)"></span>
+            <span
+              x-show="file.is_symlink"
+              class="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-amber-50 text-amber-700 border border-amber-200"
+            >Symlink</span>
+            <span
+              x-show="file.access_denied"
+              class="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-red-50 text-red-700 border border-red-200"
+            >Kein Zugriff</span>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Bottom Pagination (for long lists) -->
+    <div
+      x-show="files.length > 20"
+      x-cloak
+      class="px-5 sm:px-6 py-3 border-t border-gray-100 flex items-center justify-between bg-gray-50/50"
+    >
+      <span class="text-xs text-gray-400">
+        Zeige <span x-text="((currentPage - 1) * pageSize + 1).toLocaleString('de-DE')"></span>
+        bis <span x-text="Math.min(currentPage * pageSize, totalFiltered).toLocaleString('de-DE')"></span>
+        von <span x-text="totalFiltered.toLocaleString('de-DE')"></span>
+      </span>
+      <div class="flex items-center gap-2">
+        <button
+          @click="prevPage()"
+          :disabled="currentPage <= 1"
+          class="px-3 py-1 text-xs border border-gray-300 rounded-md
+                 hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          aria-label="Vorherige Seite"
+        >Zurück</button>
+        <button
+          @click="nextPage()"
+          :disabled="currentPage * pageSize >= totalFiltered"
+          class="px-3 py-1 text-xs border border-gray-300 rounded-md
+                 hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          aria-label="Nächste Seite"
+        >Weiter</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Empty State                                                         -->
+  <!-- ================================================================== -->
+  <section
+    x-show="status === 'completed' && fileCount === 0"
+    x-cloak
+    x-transition:enter="transition ease-out duration-300"
+    x-transition:enter-start="opacity-0 scale-95"
+    x-transition:enter-end="opacity-100 scale-100"
+    class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 sm:p-12 text-center"
+    aria-label="Leerer Ordner"
+  >
+    <svg class="mx-auto w-16 h-16 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+    </svg>
+    <h3 class="text-lg font-medium text-gray-700 mb-1">Leerer Ordner</h3>
+    <p class="text-sm text-gray-500">In diesem Verzeichnis wurden keine Dateien gefunden.</p>
+  </section>
+
+  <!-- ================================================================== -->
+  <!-- Initial State (before any scan)                                     -->
+  <!-- ================================================================== -->
+  <section
+    x-show="!scanning && !status"
+    class="bg-white rounded-xl shadow-sm border border-gray-200 border-dashed p-8 sm:p-12 text-center"
+    aria-label="Willkommen"
+  >
+    <svg class="mx-auto w-16 h-16 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+    </svg>
+    <h3 class="text-lg font-medium text-gray-700 mb-1">Bereit zum Scannen</h3>
+    <p class="text-sm text-gray-500 max-w-md mx-auto">
+      Wähle oben einen Ordner aus oder gib einen Pfad ein, um alle Dateien
+      und deren Metadaten zu analysieren.
+    </p>
+    <p class="text-xs text-gray-400 mt-3">
+      Tipp: Mit <kbd class="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600 font-mono text-[10px]">Alt+Cmd+C</kbd>
+      kannst du im Finder einen Pfad kopieren.
+    </p>
+  </section>
+
+</div>
+
+<!-- ================================================================== -->
+<!-- Alpine.js App Logic                                                 -->
+<!-- ================================================================== -->
+<script>
+function scanApp() {
+  return {
+    // Input state
+    sourcePath: '',
+    recursive: true,
+    pickingFolder: false,
+
+    // Scan state
+    scanId: null,
+    scanning: false,
+    status: null,  // 'running' | 'completed' | 'failed'
+    fileCount: 0,
+    error: null,
+    pollInterval: null,
+
+    // File list state
+    files: [],
+    totalFiltered: 0,
+    currentPage: 1,
+    pageSize: 100,
+    loadingFiles: false,
+
+    // Filter state
+    filterExtension: '',
+    filterDateFrom: '',
+    filterDateTo: '',
+    sortBy: 'name',
+    sortOrder: 'asc',
+
+    init() {
+      // Nothing to do on load
+    },
+
+    async pickFolder() {
+      this.error = null;
+      this.pickingFolder = true;
+      try {
+        const resp = await fetch('/scan/pick-folder', { method: 'POST' });
+        const data = await resp.json();
+        if (data.path) {
+          this.sourcePath = data.path;
+        }
+      } catch (e) {
+        this.error = 'Der Ordner-Dialog konnte nicht geöffnet werden. Bitte gib den Pfad manuell ein.';
+      } finally {
+        this.pickingFolder = false;
+      }
+    },
+
+    async startScan() {
+      this.error = null;
+      this.scanning = true;
+      this.status = 'running';
+      this.fileCount = 0;
+      this.files = [];
+      this.scanId = null;
+      this.currentPage = 1;
+      this.totalFiltered = 0;
+
+      try {
+        const resp = await fetch('/scan/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source_path: this.sourcePath.trim(),
+            recursive: this.recursive,
+          }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          this.error = err.detail || 'Der Scan konnte nicht gestartet werden.';
+          this.scanning = false;
+          this.status = 'failed';
+          return;
+        }
+
+        const data = await resp.json();
+        this.scanId = data.scan_id;
+
+        // Start polling every 500ms
+        this.pollInterval = setInterval(() => this.pollStatus(), 500);
+      } catch (e) {
+        this.error = 'Netzwerkfehler: ' + e.message;
+        this.scanning = false;
+        this.status = 'failed';
+      }
+    },
+
+    async pollStatus() {
+      if (!this.scanId) return;
+      try {
+        const resp = await fetch(`/scan/${this.scanId}/status`);
+        const data = await resp.json();
+        this.fileCount = data.file_count;
+        this.status = data.status;
+
+        if (data.status === 'completed' || data.status === 'failed') {
+          clearInterval(this.pollInterval);
+          this.pollInterval = null;
+          this.scanning = false;
+
+          if (data.status === 'completed') {
+            await this.loadFiles();
+          }
+        }
+      } catch (e) {
+        // Polling error - keep trying silently
+      }
+    },
+
+    async loadFiles() {
+      if (!this.scanId) return;
+      this.loadingFiles = true;
+
+      const params = new URLSearchParams({
+        sort_by: this.sortBy,
+        sort_order: this.sortOrder,
+        page: this.currentPage.toString(),
+        page_size: this.pageSize.toString(),
+      });
+      if (this.filterExtension.trim()) {
+        params.set('extension', this.filterExtension.trim());
+      }
+      if (this.filterDateFrom) {
+        params.set('date_from', this.filterDateFrom + 'T00:00:00');
+      }
+      if (this.filterDateTo) {
+        params.set('date_to', this.filterDateTo + 'T23:59:59');
+      }
+
+      try {
+        const resp = await fetch(`/scan/${this.scanId}/files?${params}`);
+        const data = await resp.json();
+        this.files = data.files;
+        this.totalFiltered = data.total_filtered;
+      } catch (e) {
+        this.error = 'Die Dateiliste konnte nicht geladen werden.';
+      } finally {
+        this.loadingFiles = false;
+      }
+    },
+
+    prevPage() {
+      if (this.currentPage > 1) {
+        this.currentPage--;
+        this.loadFiles();
+        // Scroll to top of results
+        this.$el.querySelector('[aria-label="Scan-Ergebnisse"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    },
+
+    nextPage() {
+      if (this.currentPage * this.pageSize < this.totalFiltered) {
+        this.currentPage++;
+        this.loadFiles();
+        // Scroll to top of results
+        this.$el.querySelector('[aria-label="Scan-Ergebnisse"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    },
+
+    formatDate(isoStr) {
+      if (!isoStr) return '\u2014';
+      try {
+        const d = new Date(isoStr);
+        return d.toLocaleDateString('de-DE', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+        }) + ' ' + d.toLocaleTimeString('de-DE', {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      } catch {
+        return isoStr;
+      }
+    },
+  };
+}
+</script>
+
+{% endblock %}

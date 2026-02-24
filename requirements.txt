@@ -1,0 +1,31 @@
+# Web framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+jinja2==3.1.4
+python-multipart==0.0.12    # form data support
+
+# Database
+aiosqlite==0.20.0
+
+# Validation
+pydantic==2.10.3
+
+# File analysis
+python-magic==0.4.27         # MIME type detection (requires libmagic on macOS)
+pypdf==5.1.0                 # PDF text extraction (PROJ-3)
+pytesseract==0.3.13          # OCR for scanned PDFs / images (PROJ-3)
+Pillow==11.0.0               # image support for pytesseract
+exifread==3.0.0              # EXIF metadata for photos (PROJ-3)
+
+# Rules parsing
+PyYAML==6.0.2                # PROJ-2: parse structure_rules.yaml
+
+# Smart matching
+scikit-learn==1.5.2          # optional TF-IDF for PROJ-5 fuzzy matching
+
+# AI / HTTP
+httpx==0.28.1                # async HTTP for Ollama + cloud APIs (PROJ-6)
+
+# Code quality (dev only – not needed at runtime)
+# ruff==0.8.4
+# black==24.10.0
