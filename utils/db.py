@@ -12,6 +12,7 @@ Schema overview:
   settings        – PROJ-6: key/value store for AI provider config
 """
 import aiosqlite
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 DB_PATH = Path("data/filemanager.db")
@@ -150,3 +151,21 @@ async def init_db() -> None:
         """)
 
         await db.commit()
+
+
+async def cleanup_old_scans(days: int = 30) -> int:
+    """
+    Delete scan records (and their files via CASCADE) older than `days` days.
+    Called once on startup to prevent unbounded DB growth (BUG-6).
+    Returns the number of deleted scan records.
+    """
+    cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=days)).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA foreign_keys=ON")
+        cursor = await db.execute(
+            "DELETE FROM scans WHERE created_at < ?",
+            (cutoff,),
+        )
+        await db.commit()
+        return cursor.rowcount
