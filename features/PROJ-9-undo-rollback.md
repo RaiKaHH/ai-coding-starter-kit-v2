@@ -1,8 +1,8 @@
 # PROJ-9: Undo / Rollback-System (History & Revert)
 
-## Status: In Bearbeitung
+## Status: Fertig
 **Erstellt:** 2026-02-23
-**Zuletzt aktualisiert:** 2026-02-23
+**Zuletzt aktualisiert:** 2026-02-25
 
 ## Abhängigkeiten
 - Benötigt: PROJ-2 (Mover) und PROJ-3 (Renamer) – Diese Module müssen ihre Aktionen in das zentrale `operation_log` schreiben.
@@ -408,3 +408,39 @@ Keine neuen Python-Packages. Alle Bausteine sind vorhanden:
 ### Produktions-Entscheidung: READY
 
 Keine Critical oder High Bugs vorhanden. Das Medium-Bug (synchrone File-I/O) sollte fuer robusteren Betrieb behoben werden, blockiert aber nicht das Deployment fuer lokale Nutzung.
+
+---
+
+## Bug-Fix-Verifikation (2026-02-25)
+
+Alle 4 Bugs wurden durch `/backend` gefixt und anschliessend durch `/qa` und Deployment-Check bestaetigt:
+
+| Bug | Fix | Verifiziert |
+|-----|-----|-------------|
+| BUG-1 (Rate Limiting) | `utils/rate_limit.py` + `Depends(check_undo_rate_limit)` in beiden POST-Endpunkten | PASS |
+| BUG-2 (Sync I/O) | Alle `Path.exists()`, `shutil.move()`, `mkdir()` in `asyncio.to_thread()` gewrapped | PASS |
+| BUG-3 (MIXED operation_type) | SQL nutzt `CASE WHEN COUNT(DISTINCT operation_type) > 1 THEN 'MIXED'...` | PASS |
+| BUG-4 (Memory Leak) | TTL-basierte Bereinigung via `_PROGRESS_TTL_SECONDS = 300` | PASS |
+
+**Zusaetzlicher Fix waehrend Deployment-Check:**
+- **BUG-5 (Low):** `OperationType` in `models/history.py` liess `"MIXED"` nicht zu → `GET /history/batches` gab 500 zurueck. Fix: `Literal["MOVE", "RENAME", "MIXED"]` ergaenzt.
+
+---
+
+## Deployment-Check (2026-02-25)
+
+| Pruefung | Ergebnis |
+|----------|----------|
+| App startet sauber via `uvicorn main:app` | PASS |
+| SQLite DB in `/data/`, nicht im Source-Ordner | PASS |
+| Alle Imports erfolgreich (`python -c "import api.history..."`) | PASS |
+| `operation_log` Tabelle vorhanden mit allen Feldern | PASS |
+| GET /history/ → 200 | PASS |
+| GET /history/operations → 200 | PASS |
+| GET /history/operations/count → 200 | PASS |
+| GET /history/batches → 200 (nach BUG-5-Fix) | PASS |
+| POST /history/undo/99999 → 404 (korrekt) | PASS |
+| Keine hardcoded absoluten Pfade | PASS |
+| Keine synchrone File-I/O in async Funktionen | PASS |
+
+**Deployment-Status: Fertig und produktionsbereit**

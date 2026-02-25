@@ -6,8 +6,8 @@ from typing import Literal
 from pydantic import BaseModel
 
 
-OperationType = Literal["MOVE", "RENAME"]
-OperationStatus = Literal["completed", "reverted", "revert_failed"]
+OperationType = Literal["MOVE", "RENAME", "MIXED"]
+OperationStatus = Literal["completed", "reverted", "revert_failed", "failed"]
 
 
 # --------------------------------------------------------------------------- #
