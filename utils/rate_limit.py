@@ -52,9 +52,19 @@ class RateLimiter:
 # Shared instance: 10 requests per 60 seconds for expensive triage operations
 triage_rate_limiter = RateLimiter(max_requests=10, window_seconds=60.0)
 
+# Shared instance: 10 requests per 30 seconds for undo operations
+undo_rate_limiter = RateLimiter(max_requests=10, window_seconds=30.0)
+
 
 async def check_triage_rate_limit(request: Request) -> None:
     """FastAPI dependency to check rate limit on triage endpoints."""
     client_ip = request.client.host if request.client else "unknown"
     key = f"{client_ip}:{request.url.path}"
     triage_rate_limiter.check(key)
+
+
+async def check_undo_rate_limit(request: Request) -> None:
+    """FastAPI dependency to check rate limit on undo endpoints."""
+    client_ip = request.client.host if request.client else "unknown"
+    key = f"{client_ip}:undo"
+    undo_rate_limiter.check(key)
