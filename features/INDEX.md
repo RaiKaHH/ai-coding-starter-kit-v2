@@ -19,7 +19,7 @@
 | PROJ-5 | Smart Inbox Triage | Fertig | [PROJ-5-smart-inbox-triage.md](PROJ-5-smart-inbox-triage.md) | 2026-02-23 |
 | PROJ-6 | KI-Integrations-Schicht (Gateway) | Fertig | [PROJ-6-ki-gateway.md](PROJ-6-ki-gateway.md) | 2026-02-23 |
 | PROJ-8 | Deep-AI Smart Sorting | Fertig | [PROJ-8-deep-ai-sorting.md](PROJ-8-deep-ai-sorting.md) | 2026-02-23 |
-| PROJ-9 | Undo / Rollback für Verschiebe- und Umbenenn-Aktionen | In Bearbeitung | [PROJ-9-undo-rollback.md](PROJ-9-undo-rollback.md) | 2026-02-23 |
+| PROJ-9 | Undo / Rollback für Verschiebe- und Umbenenn-Aktionen | In Review | [PROJ-9-undo-rollback.md](PROJ-9-undo-rollback.md) | 2026-02-23 |
 
 *(Hinweis: PROJ-7 wurde absichtlich entfernt, da die Funktionalität in das verbesserte PROJ-3 integriert wurde)*
 
